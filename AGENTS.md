@@ -11,6 +11,7 @@
   - `AI` (Workers AI)
   - `VEC` (Vectorize index)
   - Durable Objects: `SchedulerActor`, `GitHubActor`, `AppStoreActor`, `RedditActor`, `DiscordActor`, `CuratorActor`, `UserSessionActor`
+  - Secrets: `GITHUB_TOKEN`, `DISCORD_BOT_TOKEN`
 - **Dependencies:** Hono-based Worker entry point at `src/index.ts`
 - **Migration Tag:** Initial schema plus queued migrations in `migrations/0001_init.sql` through `0004_user_preferences.sql`
 - **Usage Example:** Run `wrangler dev` for local testing; apply database migrations with `wrangler d1 migrations apply DB`.
