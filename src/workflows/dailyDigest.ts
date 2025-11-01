@@ -16,7 +16,7 @@
  */
 
 import { Env } from '../types/env';
-import { getItems } from '../services/db';
+import { getItems, getSources } from '../services/db'; // <-- Import getSources
 import { sendDigest } from '../services/digest';
 import { createLogger } from '../utils/logger';
 
@@ -41,6 +41,10 @@ export async function dailyDigestWorkflow(env: Env): Promise<void> {
       return;
     }
 
+    // Step 1.5 - Get source names for mapping
+    const sources = await getSources(env.DB);
+    const sourceMap = new Map(sources.map(s => [s.id, s.name]));
+
     // Step 2 - Fetch all users with digest enabled
     // For demo, we'll use a hardcoded list
     // In production, query user_preferences table
@@ -51,12 +55,19 @@ export async function dailyDigestWorkflow(env: Env): Promise<void> {
     // Step 3 - Send digest to each user
     for (const user of users) {
       try {
-        await sendDigest(env.DB, env.MAILER, items, {
-          userId: user.userId,
-          userEmail: user.email,
-          minScore: 0.7,
-          maxItems: 20,
-        });
+        // Pass sourceMap to sendDigest
+        await sendDigest(
+          env.DB,
+          env.MAILER,
+          items,
+          {
+            userId: user.userId,
+            userEmail: user.email,
+            minScore: 0.7,
+            maxItems: 20,
+          },
+          sourceMap // <-- Pass map here
+        );
 
         await logger.info('DIGEST_SENT', {
           userId: user.userId,
