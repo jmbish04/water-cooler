@@ -98,7 +98,8 @@ app.get('/*', async (c) => {
  * Processes scan messages from SCAN_QUEUE
  * Routes to appropriate source actor
  */
-export async function queue(
+// ---- REMOVED 'export' KEYWORD ----
+async function queue(
   batch: MessageBatch,
   env: Env
 ): Promise<void> {
@@ -161,7 +162,8 @@ export async function queue(
 // Runs workflows on schedule:
 // - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
 // - Cron "0 9 * * *" (9am daily) — dailyDigest
-export async function scheduled(
+// ---- REMOVED 'export' KEYWORD ----
+async function scheduled(
   event: ScheduledEvent,
   env: Env,
   ctx: ExecutionContext
@@ -190,4 +192,9 @@ export async function scheduled(
 /**
  * Default export (fetch handler)
  */
-export default app;
+// ---- MODIFIED DEFAULT EXPORT ----
+export default {
+  fetch: app.fetch,
+  queue: queue,
+  scheduled: scheduled
+};
