@@ -77,7 +77,7 @@
   "vectorize": [
     {
       "binding": "VEC",
-      "index_name": "curation_vectors"
+      "index_name": "water-cooler"
     }
   ],
 
