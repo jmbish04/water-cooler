@@ -156,13 +156,11 @@ export async function queue(
   }
 }
 
-/**
- * Scheduled handler (cron triggers)
- *
- * Runs workflows on schedule:
- * - "0 */6 * * *" (every 6 hours) — scheduleScan
- * - "0 9 * * *" (9am daily) — dailyDigest
- */
+// Scheduled handler (cron triggers)
+//
+// Runs workflows on schedule:
+// - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
+// - Cron "0 9 * * *" (9am daily) — dailyDigest
 export async function scheduled(
   event: ScheduledEvent,
   env: Env,
