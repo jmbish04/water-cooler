@@ -38,7 +38,8 @@ export async function sendDigest(
   db: D1Database,
   mailer: any,
   items: Item[],
-  options: DigestOptions
+  options: DigestOptions,
+  sourceMap: Map<number, string> // <-- Accept sourceMap
 ): Promise<void> {
   const logger = createLogger(db, 'DigestService');
   const start = Date.now();
@@ -58,7 +59,7 @@ export async function sendDigest(
     }
 
     // Step 2 - Group by source
-    const grouped = groupBySource(topItems);
+    const grouped = groupBySource(topItems, sourceMap); // <-- Pass map
 
     // Step 3 - Render HTML
     const html = renderDigestHTML(grouped);
@@ -80,9 +81,9 @@ export async function sendDigest(
 
     // Step 5 - Send email
     await mailer.send({
-      from: 'digest@curation-hub.workers.dev',
+      from: 'digest@curation-hub.workers.dev', // TODO: Update this to your sending email
       to: userEmail,
-      subject: `Your AI-Curated Digest — ${topItems.length} Items`,
+      subject: `Your AI-Curated Digest — ${topItems.length} New Items`,
       html,
     });
 
@@ -122,13 +123,12 @@ export async function sendDigest(
 /**
  * Group items by source type
  */
-function groupBySource(items: Item[]): Record<string, Item[]> {
+function groupBySource(items: Item[], sourceMap: Map<number, string>): Record<string, Item[]> {
   const grouped: Record<string, Item[]> = {};
 
   items.forEach((item) => {
-    // We need source type, but items only have sourceId
-    // For now, group by sourceId (caller should join with sources table)
-    const key = `source-${item.sourceId}`;
+    // Use the sourceMap to get the friendly name
+    const key = sourceMap.get(item.sourceId) || `Source ${item.sourceId}`;
     if (!grouped[key]) {
       grouped[key] = [];
     }
@@ -139,63 +139,162 @@ function groupBySource(items: Item[]): Record<string, Item[]> {
 }
 
 /**
- * Render HTML email template
+ * Render HTML email template (Gmail-optimized)
  */
 function renderDigestHTML(grouped: Record<string, Item[]>): string {
   const sections = Object.entries(grouped)
-    .map(([source, items]) => {
+    .map(([sourceName, items]) => {
       const itemsHtml = items
         .map(
           (item) => `
-        <div style="margin-bottom: 20px; padding: 15px; border-left: 3px solid #4CAF50; background: #f9f9f9;">
-          <h3 style="margin: 0 0 10px 0;">
-            <a href="${item.url}" style="color: #1976D2; text-decoration: none;">${item.title}</a>
-          </h3>
-          <p style="margin: 0 0 10px 0; color: #555;">${item.summary || 'No summary available'}</p>
-          <div style="font-size: 0.9em; color: #777;">
-            <strong>Score:</strong> ${(item.score * 100).toFixed(0)}% |
-            <strong>Tags:</strong> ${item.tags?.join(', ') || 'None'}
-          </div>
-          ${item.reason ? `<p style="margin: 10px 0 0 0; font-style: italic; color: #666;">${item.reason}</p>` : ''}
-        </div>
+        <!-- ITEM -->
+        <tr>
+          <td style="padding: 20px; background-color: #f9f9f9; border-left: 4px solid #4CAF50; border-radius: 4px;">
+            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td>
+                  <h3 style="margin: 0 0 10px 0; font-family: Arial, sans-serif; font-size: 18px; font-weight: 600; color: #333333;">
+                    <a href="${item.url}" target="_blank" style="color: #1976D2; text-decoration: none;">${item.title}</a>
+                  </h3>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom: 15px; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #555555;">
+                  ${item.summary || 'No summary available.'}
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom: 15px;">
+                  <table border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="font-family: Arial, sans-serif; font-size: 12px; color: #777777;">
+                        <strong>Score:</strong> ${Math.round(item.score * 100)}%
+                      </td>
+                      <td style="padding: 0 10px; font-family: Arial, sans-serif; font-size: 12px; color: #aaaaaa;">|</td>
+                      <td style="font-family: Arial, sans-serif; font-size: 12px; color: #777777;">
+                        <strong>Tags:</strong> ${item.tags?.join(', ') || 'None'}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              ${item.reason ? `
+              <tr>
+                <td style="font-family: Arial, sans-serif; font-size: 13px; color: #666666; font-style: italic; border-top: 1px dashed #cccccc; padding-top: 10px;">
+                  " ${item.reason} "
+                </td>
+              </tr>
+              ` : ''}
+            </table>
+          </td>
+        </tr>
+        <!-- SPACER -->
+        <tr><td style="font-size: 0; line-height: 0;" height="20">&nbsp;</td></tr>
       `
         )
         .join('');
 
       return `
-      <div style="margin-bottom: 30px;">
-        <h2 style="color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px;">
-          ${source}
-        </h2>
-        ${itemsHtml}
-      </div>
+      <!-- SECTION HEADER -->
+      <tr>
+        <td style="padding-bottom: 10px;">
+          <h2 style="margin: 0; font-family: Arial, sans-serif; font-size: 22px; font-weight: bold; color: #333333; border-bottom: 2px solid #eeeeee; padding-bottom: 10px;">
+            ${sourceName}
+          </h2>
+        </td>
+      </tr>
+      <!-- SPACER -->
+      <tr><td style="font-size: 0; line-height: 0;" height="10">&nbsp;</td></tr>
+      
+      <!-- ITEMS LIST -->
+      <tr>
+        <td>
+          <table border="0" cellpadding="0" cellspacing="0" width="100%">
+            ${itemsHtml}
+          </table>
+        </td>
+      </tr>
+      <!-- SECTION SPACER -->
+      <tr><td style="font-size: 0; line-height: 0;" height="30">&nbsp;</td></tr>
     `;
     })
     .join('');
 
+  // The main email template
   return `
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI-Curated Digest</title>
+  <title>Your AI-Curated Digest</title>
+  <!--[if mso]>
+  <style type="text/css">
+    table {border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;}
+    td {border-collapse:collapse;}
+  </style>
+  <![endif]-->
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #fff;">
-  <div style="text-align: center; margin-bottom: 40px;">
-    <h1 style="color: #1976D2; margin-bottom: 10px;">🤖 AI-Curated Discovery Hub</h1>
-    <p style="color: #666; margin: 0;">Your personalized digest of curated content</p>
-  </div>
+<body style="margin: 0; padding: 0; background-color: #f4f4f4;">
+  <table border="0" cellpadding="0" cellspacing="0" width="100%">
+    <tr>
+      <td align="center" style="padding: 20px 0;">
+        <table border="0" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+          
+          <!-- HEADER -->
+          <tr>
+            <td align="center" style="padding: 30px 20px; border-bottom: 1px solid #eeeeee;">
+              <h1 style="margin: 0; font-family: Arial, sans-serif; font-size: 28px; font-weight: bold; color: #1976D2;">
+                🤖 AI-Curated Digest
+              </h1>
+              <p style="margin: 10px 0 0 0; font-family: Arial, sans-serif; font-size: 16px; color: #666666;">
+                Your daily roundup of top-scoring items.
+              </p>
+            </td>
+          </tr>
 
-  ${sections}
+          <!-- SPACER -->
+          <tr><td style="font-size: 0; line-height: 0;" height="30">&nbsp;</td></tr>
 
-  <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 0.9em;">
-    <p>Powered by Cloudflare Workers + AI</p>
-    <p>
-      <a href="https://curation-hub.workers.dev" style="color: #1976D2; text-decoration: none;">View Dashboard</a> |
-      <a href="https://curation-hub.workers.dev/settings" style="color: #1976D2; text-decoration: none;">Manage Preferences</a>
-    </p>
-  </div>
+          <!-- CONTENT BODY -->
+          <tr>
+            <td style="padding: 0 30px;">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                ${sections}
+              </table>
+            </td>
+          </tr>
+
+          <!-- SPACER -->
+          <tr><td style="font-size: 0; line-height: 0;" height="20">&nbsp;</td></tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td align="center" style="padding: 30px 20px; border-top: 1px solid #eeeeee; background-color: #f9f9f9; border-radius: 0 0 8px 8px;">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td align="center" style="padding-bottom: 15px;">
+                    <a href="https://curation-hub.workers.dev" target="_blank" style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; color: #ffffff; text-decoration: none; background-color: #1976D2; padding: 12px 25px; border-radius: 5px; display: inline-block;">
+                      Go to Your Dashboard
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="font-family: Arial, sans-serif; font-size: 12px; color: #999999;">
+                    <p style="margin: 0;">Powered by Cloudflare Workers + AI</p>
+                    <p style="margin: 5px 0 0 0;">
+                      <a href="https://curation-hub.workers.dev/settings" target="_blank" style="color: #999999; text-decoration: underline;">Manage Preferences</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
   `.trim();
