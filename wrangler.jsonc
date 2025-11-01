@@ -115,7 +115,20 @@
       }
     ]
   },
-
+"migrations": [
+    {
+      "tag": "v1",
+      "new_classes": [
+        "SchedulerActor",
+        "GitHubActor",
+        "AppStoreActor",
+        "RedditActor",
+        "DiscordActor",
+        "CuratorActor",
+        "UserSessionActor"
+      ]
+    }
+  ],
   "send_email": [
     {
       "name": "MAILER"
