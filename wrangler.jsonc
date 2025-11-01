@@ -36,21 +36,21 @@
     {
       "binding": "DB",
       "database_name": "curation_hub",
-      "database_id": "YOUR_D1_DATABASE_ID"
+      "database_id": "742bd87f-417b-47bd-83c7-eab3d1ca9506"
     }
   ],
 
   "kv_namespaces": [
     {
       "binding": "CACHE",
-      "id": "YOUR_KV_NAMESPACE_ID"
+      "id": "f4669a0eecf0460b8e86beca65853a07"
     }
   ],
 
   "r2_buckets": [
     {
       "binding": "R2",
-      "bucket_name": "curation-assets"
+      "bucket_name": "water-cooler-assets"
     }
   ],
 
@@ -58,12 +58,12 @@
     "producers": [
       {
         "binding": "SCAN_QUEUE",
-        "queue": "curation-scan"
+        "queue": "water-cooler-scan" # 
       }
     ],
     "consumers": [
       {
-        "queue": "curation-scan",
+        "queue": "water-cooler-scan",
         "max_batch_size": 10,
         "max_batch_timeout": 30
       }
