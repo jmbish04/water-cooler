@@ -35,8 +35,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "curation_hub",
-      "database_id": "742bd87f-417b-47bd-83c7-eab3d1ca9506",
+      "database_name": "water-cooler",
+      "database_id": "72a62149-b39a-4390-912a-6aef100f3a76",
       "migrations_dir": "migrations"
     }
   ],
