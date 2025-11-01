@@ -58,7 +58,7 @@
     "producers": [
       {
         "binding": "SCAN_QUEUE",
-        "queue": "water-cooler-scan" # 
+        "queue": "water-cooler-scan"
       }
     ],
     "consumers": [
