@@ -61,7 +61,7 @@ export class GitHubActor implements DurableObject {
       }>();
 
       // Step 2 - Fetch repos
-      const repos = await fetchGitHubRepos(config, this.env.CACHE);
+      const repos = await fetchGitHubRepos(config, this.env.CACHE, this.env.GITHUB_TOKEN);
 
       // Step 3 - Get processed URLs
       const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();

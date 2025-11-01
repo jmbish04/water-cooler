@@ -40,7 +40,8 @@ interface GitHubRepo {
  */
 export async function fetchGitHubRepos(
   config: GitHubConfig,
-  cache: KVNamespace
+  cache: KVNamespace,
+  token?: string
 ): Promise<Array<{ title: string; url: string; content: string; metadata: ItemMetadata }>> {
   const cacheKey = `github:${JSON.stringify(config)}`;
 
@@ -54,18 +55,18 @@ export async function fetchGitHubRepos(
 
   // Strategy 1: Trending
   if (config.trending) {
-    repos = await fetchTrending(config.trending.language, config.trending.since);
+    repos = await fetchTrending(config.trending.language, config.trending.since, token);
   }
   // Strategy 2: Org repos
   else if (config.org) {
-    repos = await fetchOrgRepos(config.org, config.repos);
+    repos = await fetchOrgRepos(config.org, config.repos, token);
   }
 
   // Normalize
   const results = [];
   for (const repo of repos.slice(0, 20)) {
     // limit to 20
-    const readme = await fetchReadme(repo.full_name);
+    const readme = await fetchReadme(repo.full_name, token);
     results.push({
       title: repo.full_name,
       url: repo.html_url,
@@ -91,7 +92,8 @@ export async function fetchGitHubRepos(
  */
 async function fetchTrending(
   language?: string,
-  since: string = 'daily'
+  since: string = 'daily',
+  token?: string
 ): Promise<GitHubRepo[]> {
   // Use GitHub search API as a proxy for trending
   const langQuery = language ? `language:${language}` : '';
@@ -101,10 +103,7 @@ async function fetchTrending(
   const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=30`;
 
   const response = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'Cloudflare-Curation-Hub',
-    },
+    headers: buildHeaders(token),
   });
 
   if (!response.ok) {
@@ -118,17 +117,18 @@ async function fetchTrending(
 /**
  * Fetch organization repositories
  */
-async function fetchOrgRepos(org: string, repos?: string[]): Promise<GitHubRepo[]> {
+async function fetchOrgRepos(
+  org: string,
+  repos?: string[],
+  token?: string
+): Promise<GitHubRepo[]> {
   if (repos && repos.length > 0) {
     // Fetch specific repos
     const results = [];
     for (const repo of repos) {
       const url = `https://api.github.com/repos/${org}/${repo}`;
       const response = await fetch(url, {
-        headers: {
-          Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'Cloudflare-Curation-Hub',
-        },
+        headers: buildHeaders(token),
       });
 
       if (response.ok) {
@@ -141,10 +141,7 @@ async function fetchOrgRepos(org: string, repos?: string[]): Promise<GitHubRepo[
     // Fetch all org repos
     const url = `https://api.github.com/orgs/${org}/repos?sort=updated&per_page=30`;
     const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'Cloudflare-Curation-Hub',
-      },
+      headers: buildHeaders(token),
     });
 
     if (!response.ok) {
@@ -158,14 +155,10 @@ async function fetchOrgRepos(org: string, repos?: string[]): Promise<GitHubRepo[
 /**
  * Fetch README content
  */
-async function fetchReadme(fullName: string): Promise<string | null> {
+async function fetchReadme(fullName: string, token?: string): Promise<string | null> {
   const url = `https://api.github.com/repos/${fullName}/readme`;
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github.v3.raw',
-      'User-Agent': 'Cloudflare-Curation-Hub',
-    },
-  });
+  const headers = buildHeaders(token, 'application/vnd.github.v3.raw');
+  const response = await fetch(url, { headers });
 
   if (!response.ok) {
     return null;
@@ -189,4 +182,17 @@ function getDateFilter(since: string): string {
   const days = daysAgo[since] || 1;
   const date = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
   return `created:>${date.toISOString().split('T')[0]}`;
+}
+
+function buildHeaders(token?: string, accept = 'application/vnd.github.v3+json'): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: accept,
+    'User-Agent': 'Cloudflare-Curation-Hub',
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
 }

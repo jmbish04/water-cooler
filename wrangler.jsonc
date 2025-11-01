@@ -1,37 +1,23 @@
 /**
  * Wrangler Configuration for AI-Curated Discovery Hub
- *
- * Cloudflare Workers configuration with:
- * - Durable Objects (Actors) for stateful operations
- * - D1 for relational data + audit logs
- * - KV for caching external API responses
- * - R2 for asset storage
- * - Queues for async scan processing
- * - Vectorize for semantic search
- * - AI binding for curation & Q&A
- * - Email for digest delivery
- * - Static assets served from /public
- *
- * AI Agent Hints:
- * - All bindings are strongly typed in src/types/env.ts
- * - AI_MODEL can be overridden via env vars (default: @cf/openai/gpt-oss-120b)
- * - Observability enabled for production monitoring
  */
 {
   "name": "water-cooler",
   "main": "src/index.ts",
-  "compatibility_date": "2025-11-01",
-
+  "compatibility_date": "2025-03-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "vars": {
     "AI_MODEL": "@cf/openai/gpt-oss-120b",
     "ENVIRONMENT": "production"
   },
-
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
   },
-
   "d1_databases": [
     {
       "binding": "DB",
@@ -40,21 +26,18 @@
       "migrations_dir": "migrations"
     }
   ],
-
   "kv_namespaces": [
     {
       "binding": "CACHE",
       "id": "f4669a0eecf0460b8e86beca65853a07"
     }
   ],
-
   "r2_buckets": [
     {
       "binding": "R2",
       "bucket_name": "water-cooler-assets"
     }
   ],
-
   "queues": {
     "producers": [
       {
@@ -70,52 +53,27 @@
       }
     ]
   },
-
   "ai": {
     "binding": "AI"
   },
-
   "vectorize": [
     {
       "binding": "VEC",
       "index_name": "water-cooler"
     }
   ],
-
   "durable_objects": {
     "bindings": [
-      {
-        "name": "SCHEDULER_ACTOR",
-        "class_name": "SchedulerActor"
-        
-      },
-      {
-        "name": "GITHUB_ACTOR",
-        "class_name": "GitHubActor"
-      },
-      {
-        "name": "APPSTORE_ACTOR",
-        "class_name": "AppStoreActor"
-      },
-      {
-        "name": "REDDIT_ACTOR",
-        "class_name": "RedditActor"
-      },
-      {
-        "name": "DISCORD_ACTOR",
-        "class_name": "DiscordActor"
-      },
-      {
-        "name": "CURATOR_ACTOR",
-        "class_name": "CuratorActor"
-      },
-      {
-        "name": "USER_SESSION_ACTOR",
-        "class_name": "UserSessionActor"
-      }
+      { "name": "SCHEDULER_ACTOR", "class_name": "SchedulerActor" },
+      { "name": "GITHUB_ACTOR", "class_name": "GitHubActor" },
+      { "name": "APPSTORE_ACTOR", "class_name": "AppStoreActor" },
+      { "name": "REDDIT_ACTOR", "class_name": "RedditActor" },
+      { "name": "DISCORD_ACTOR", "class_name": "DiscordActor" },
+      { "name": "CURATOR_ACTOR", "class_name": "CuratorActor" },
+      { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" }
     ]
   },
-"migrations": [
+  "migrations": [
     {
       "tag": "v1",
       "new_classes": [
@@ -134,14 +92,7 @@
       "name": "MAILER"
     }
   ],
-
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
-  },
-
   "logpush": false,
-
   "placement": {
     "mode": "smart"
   }

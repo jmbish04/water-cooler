@@ -42,8 +42,11 @@ export class DiscordActor implements DurableObject {
         config: DiscordConfig;
       }>();
 
-      // Note: requires DISCORD_BOT_TOKEN in env (not implemented in env.ts yet)
-      const messages = await fetchDiscordMessages(config, this.env.CACHE);
+      const messages = await fetchDiscordMessages(
+        config,
+        this.env.CACHE,
+        this.env.DISCORD_BOT_TOKEN
+      );
       const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
       let newCount = 0;
