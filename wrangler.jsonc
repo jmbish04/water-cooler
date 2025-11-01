@@ -36,7 +36,8 @@
     {
       "binding": "DB",
       "database_name": "curation_hub",
-      "database_id": "742bd87f-417b-47bd-83c7-eab3d1ca9506"
+      "database_id": "742bd87f-417b-47bd-83c7-eab3d1ca9506",
+      "migrations_dir": "migrations"
     }
   ],
 

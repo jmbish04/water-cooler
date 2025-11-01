@@ -34,7 +34,6 @@ CREATE TABLE items (
   tags TEXT,
   reason TEXT,
   score REAL DEFAULT 0.0,
-  vectorId TEXT,
   metadata TEXT,
   createdAt TEXT NOT NULL DEFAULT (datetime('now')),
   updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
