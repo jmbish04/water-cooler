@@ -86,38 +86,32 @@
     "bindings": [
       {
         "name": "SCHEDULER_ACTOR",
-        "class_name": "SchedulerActor",
-        "script_name": "curation-hub"
+        "class_name": "SchedulerActor"
+        
       },
       {
         "name": "GITHUB_ACTOR",
-        "class_name": "GitHubActor",
-        "script_name": "curation-hub"
+        "class_name": "GitHubActor"
       },
       {
         "name": "APPSTORE_ACTOR",
-        "class_name": "AppStoreActor",
-        "script_name": "curation-hub"
+        "class_name": "AppStoreActor"
       },
       {
         "name": "REDDIT_ACTOR",
-        "class_name": "RedditActor",
-        "script_name": "curation-hub"
+        "class_name": "RedditActor"
       },
       {
         "name": "DISCORD_ACTOR",
-        "class_name": "DiscordActor",
-        "script_name": "curation-hub"
+        "class_name": "DiscordActor"
       },
       {
         "name": "CURATOR_ACTOR",
-        "class_name": "CuratorActor",
-        "script_name": "curation-hub"
+        "class_name": "CuratorActor"
       },
       {
         "name": "USER_SESSION_ACTOR",
-        "class_name": "UserSessionActor",
-        "script_name": "curation-hub"
+        "class_name": "UserSessionActor"
       }
     ]
   },
