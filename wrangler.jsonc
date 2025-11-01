@@ -1,0 +1,140 @@
+/**
+ * Wrangler Configuration for AI-Curated Discovery Hub
+ *
+ * Cloudflare Workers configuration with:
+ * - Durable Objects (Actors) for stateful operations
+ * - D1 for relational data + audit logs
+ * - KV for caching external API responses
+ * - R2 for asset storage
+ * - Queues for async scan processing
+ * - Vectorize for semantic search
+ * - AI binding for curation & Q&A
+ * - Email for digest delivery
+ * - Static assets served from /public
+ *
+ * AI Agent Hints:
+ * - All bindings are strongly typed in src/types/env.ts
+ * - AI_MODEL can be overridden via env vars (default: @cf/openai/gpt-oss-120b)
+ * - Observability enabled for production monitoring
+ */
+{
+  "name": "curation-hub",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-11-01",
+
+  "vars": {
+    "AI_MODEL": "@cf/openai/gpt-oss-120b",
+    "ENVIRONMENT": "production"
+  },
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "curation_hub",
+      "database_id": "YOUR_D1_DATABASE_ID"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "YOUR_KV_NAMESPACE_ID"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "curation-assets"
+    }
+  ],
+
+  "queues": {
+    "producers": [
+      {
+        "binding": "SCAN_QUEUE",
+        "queue": "curation-scan"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "curation-scan",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
+      }
+    ]
+  },
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  "vectorize": [
+    {
+      "binding": "VEC",
+      "index_name": "curation_vectors"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SCHEDULER_ACTOR",
+        "class_name": "SchedulerActor",
+        "script_name": "curation-hub"
+      },
+      {
+        "name": "GITHUB_ACTOR",
+        "class_name": "GitHubActor",
+        "script_name": "curation-hub"
+      },
+      {
+        "name": "APPSTORE_ACTOR",
+        "class_name": "AppStoreActor",
+        "script_name": "curation-hub"
+      },
+      {
+        "name": "REDDIT_ACTOR",
+        "class_name": "RedditActor",
+        "script_name": "curation-hub"
+      },
+      {
+        "name": "DISCORD_ACTOR",
+        "class_name": "DiscordActor",
+        "script_name": "curation-hub"
+      },
+      {
+        "name": "CURATOR_ACTOR",
+        "class_name": "CuratorActor",
+        "script_name": "curation-hub"
+      },
+      {
+        "name": "USER_SESSION_ACTOR",
+        "class_name": "UserSessionActor",
+        "script_name": "curation-hub"
+      }
+    ]
+  },
+
+  "send_email": [
+    {
+      "name": "MAILER"
+    }
+  ],
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  "logpush": false,
+
+  "placement": {
+    "mode": "smart"
+  }
+}
