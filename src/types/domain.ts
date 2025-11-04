@@ -51,9 +51,11 @@ export interface AppStoreConfig {
 }
 
 export interface RedditConfig {
-  subreddit: string;
+  subreddit: string; // Use "MY_FEED" to get authenticated user's feed
   sort?: 'hot' | 'new' | 'top' | 'rising';
   timeframe?: 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
+  includeTerms?: string[];
+  excludeTerms?: string[];
 }
 
 export interface DiscordConfig {
