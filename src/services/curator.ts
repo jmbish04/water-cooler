@@ -48,10 +48,8 @@ export async function curateContent(
     const { instructions, prompt } = buildCurationPrompt(request);
 
     // Step 2 - Call AI model
-    const response = await ai.run(model, {
-      instructions,
-      input: prompt, // Use 'input' key instead of 'prompt'
-    });
+    const payload = createAiPayload(model, instructions, prompt); // Creates the payload that the selected model expects; currently only support gpt-oss-120b and llama3 generally.
+    const response = await ai.run(model, payload);
 
     // Step 3 - Parse response
     const parsed = parseCurationResponse(response);
@@ -164,13 +162,11 @@ export async function answerQuestion(
     }
 
     // Step 3 - Build prompt
-    const prompt = buildQAPrompt(item, request.question, relatedItems);
+    const { instructions, prompt } = buildQAPrompt(item, request.question, relatedItems);
 
     // Step 4 - Call AI
-    const response = await ai.run(model, {
-      prompt,
-      max_tokens: 400,
-    });
+    const payload = createAiPayload(model, instructions, prompt); // Creates the payload that the selected model expects; currently only support gpt-oss-120b and llama3 generally.
+    const response = await ai.run(model, payload);
 
     // Step 5 - Parse response
     const answer = parseQAResponse(response);
