@@ -45,12 +45,12 @@ export async function curateContent(
 
   try {
     // Step 1 - Build prompt
-    const prompt = buildCurationPrompt(request);
+    const { instructions, prompt } = buildCurationPrompt(request);
 
     // Step 2 - Call AI model
     const response = await ai.run(model, {
-      prompt,
-      max_tokens: 500,
+      instructions,
+      input: prompt, // Use 'input' key instead of 'prompt'
     });
 
     // Step 3 - Parse response
@@ -212,25 +212,22 @@ async function generateEmbedding(ai: Ai, text: string): Promise<number[]> {
 /**
  * Build curation prompt
  */
-function buildCurationPrompt(request: CurationRequest): string {
-  return `You are an expert content curator. Analyze the following ${request.source} content and provide:
-
-1. A concise summary (2-3 sentences)
-2. Relevant tags (5-7 keywords)
-3. Why this is interesting/valuable (1 sentence)
-4. A quality score from 0.0 to 1.0 (1.0 = exceptional, 0.5 = good, 0.0 = poor)
-
-Title: ${request.title}
-URL: ${request.url}
-Content: ${request.content.slice(0, 2000)}
-
-Respond in this exact JSON format:
+function buildCurationPrompt(request: CurationRequest): { instructions: string; prompt: string } {
+  const instructions = `You are an expert content curator. Analyze the following content and respond in this exact JSON format:
 {
-  "summary": "...",
-  "tags": ["tag1", "tag2", ...],
-  "reason": "...",
-  "score": 0.85
+  "summary": "A concise summary (2-3 sentences)",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "reason": "Why this is interesting/valuable (1 sentence)",
+  "score": 0.85 //[quality score from 0.0 to 1.0 (1.0 = exceptional, 0.5 = good, 0.0 = poor)]
 }`;
+
+  const prompt = `Analyze this ${request.source} content:
+    Title: ${request.title}
+    URL: ${request.url}
+    Content: ${request.content.slice(0, 5000)}
+  `;
+
+  return { instructions, prompt };
 }
 
 /**
