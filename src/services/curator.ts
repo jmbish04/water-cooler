@@ -92,7 +92,8 @@ export async function insertEmbedding(
   embedding: number[],
   metadata: Record<string, unknown>
 ): Promise<string> {
-  const vectorId = `item-${itemId}`;
+  // Use the itemId (64-byte hash) directly as the vectorId
+  const vectorId = itemId;
 
   await vec.upsert([
     {
