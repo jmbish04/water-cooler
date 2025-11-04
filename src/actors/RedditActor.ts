@@ -42,7 +42,11 @@ export class RedditActor implements DurableObject {
         config: RedditConfig;
       }>();
 
-      const posts = await fetchRedditPosts(config, this.env.CACHE);
+      const posts = await fetchRedditPosts(
+        config, 
+        this.env.CACHE, 
+        this.env.REDDIT_OAUTH_TOKEN
+      );
       const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
       let newCount = 0;
