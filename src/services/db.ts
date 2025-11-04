@@ -1,17 +1,18 @@
 /**
  * D1 Database Service Layer
  *
- * Purpose:
- * - CRUD operations for all tables
- * - Prepared statement helpers
- * - Transaction utilities
- * - Type-safe database queries
+ * This file acts as a type-safe data access layer (DAL) for the application.
+ * It abstracts all D1 database operations, ensuring that all interactions
+ * (CRUD) are standardized, secure (using prepared statements), and observable.
+ *
+ * Responsibilities:
+ * - CRUD operations for `sources`, `items`, `user_actions`, and `user_preferences`.
+ * - Type-safe serialization and deserialization between D1 rows and domain types.
+ * - Comprehensive logging for key write operations (createItem) to audit_logs.
  *
  * AI Agent Hints:
- * - All queries use prepared statements (SQL injection safe)
- * - JSON fields (config, metadata, tags) are auto-serialized/deserialized
- * - Returns domain types (not raw D1 rows)
- * - Error handling logs to audit_logs
+ * - All JSON fields (config, metadata, tags) are auto-serialized/deserialized.
+ * - This layer returns strongly-typed domain objects, not raw D1 rows.
  */
 
 import {
@@ -26,10 +27,16 @@ import {
 import { generateItemId } from '../utils/hash';
 import { createLogger } from '../utils/logger';
 
-/**
- * Sources
- */
+// ============================================================================
+// SOURCES
+// ============================================================================
 
+/**
+ * Fetches all data sources from the database.
+ * @param db The D1Database instance.
+ * @param enabled (Optional) If true, fetches only enabled sources.
+ * @returns A promise that resolves to an array of Source objects.
+ */
 export async function getSources(db: D1Database, enabled?: boolean): Promise<Source[]> {
   let query = 'SELECT * FROM sources';
   const params: unknown[] = [];
@@ -45,11 +52,23 @@ export async function getSources(db: D1Database, enabled?: boolean): Promise<Sou
   return (result.results || []).map(deserializeSource);
 }
 
+/**
+ * Fetches a single source by its unique ID.
+ * @param db The D1Database instance.
+ * @param id The ID of the source to fetch.
+ * @returns A promise that resolves to a Source object or null if not found.
+ */
 export async function getSourceById(db: D1Database, id: number): Promise<Source | null> {
   const result = await db.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first();
   return result ? deserializeSource(result) : null;
 }
 
+/**
+ * Creates a new data source in the database.
+ * @param db The D1Database instance.
+ * @param source The source object to create (without id, timestamps).
+ * @returns A promise that resolves to the newly created Source object.
+ */
 export async function createSource(
   db: D1Database,
   source: Omit<Source, 'id' | 'createdAt' | 'updatedAt' | 'lastScan'>
@@ -68,6 +87,11 @@ export async function createSource(
   return deserializeSource(result);
 }
 
+/**
+ * Updates the `lastScan` timestamp for a specific source.
+ * @param db The D1Database instance.
+ * @param id The ID of the source to update.
+ */
 export async function updateSourceLastScan(db: D1Database, id: number): Promise<void> {
   const now = new Date().toISOString();
   await db
@@ -76,10 +100,16 @@ export async function updateSourceLastScan(db: D1Database, id: number): Promise<
     .run();
 }
 
-/**
- * Items
- */
+// ============================================================================
+// ITEMS
+// ============================================================================
 
+/**
+ * Fetches a paginated list of items based on complex filter criteria.
+ * @param db The D1Database instance.
+ * @param query A SearchQuery object containing filters (source, score, tags, user actions).
+ * @returns A promise that resolves to an object containing the items and total count.
+ */
 export async function getItems(
   db: D1Database,
   query: SearchQuery
@@ -154,11 +184,25 @@ export async function getItems(
   return { items, total };
 }
 
+/**
+ * Fetches a single item by its deterministic ID (hash).
+ * @param db The D1Database instance.
+ * @param id The deterministic SHA-256 hash ID of the item.
+ * @returns A promise that resolves to an Item object or null if not found.
+ */
 export async function getItemById(db: D1Database, id: string): Promise<Item | null> {
   const result = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
   return result ? deserializeItem(result) : null;
 }
 
+/**
+ * Creates a new item or updates an existing one (upsert).
+ * This is the primary function for saving curated content to the database.
+ * It logs its outcome to the `audit_logs` table.
+ * @param db The D1Database instance.
+ * @param item The curated item data to save.
+ * @returns A promise that resolves to the created/updated Item object.
+ */
 export async function createItem(
   db: D1Database,
   item: Omit<Item, 'id' | 'createdAt' | 'updatedAt'>
@@ -167,71 +211,73 @@ export async function createItem(
   const now = new Date().toISOString();
   const id = await generateItemId(item.sourceId, item.url);
 
-  try{
-  // Upsert (update if exists)
-  await db
-    .prepare(
-      `INSERT INTO items
-       (id, sourceId, title, url, summary, tags, reason, score, vectorId, metadata, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         title = excluded.title,
-         summary = excluded.summary,
-         tags = excluded.tags,
-         reason = excluded.reason,
-         score = excluded.score,
-         vectorId = excluded.vectorId,
-         metadata = excluded.metadata,
-         updatedAt = excluded.updatedAt`
-    )
-    .bind(
-      id,
-      item.sourceId,
-      item.title,
-      item.url,
-      item.summary,
-      item.tags ? JSON.stringify(item.tags) : null,
-      item.reason,
-      item.score,
-      item.vectorId,
-      item.metadata ? JSON.stringify(item.metadata) : null,
-      now,
-      now
-    )
-    .run();
+  try {
+    // Upsert (update if exists)
+    await db
+      .prepare(
+        `INSERT INTO items
+         (id, sourceId, title, url, summary, tags, reason, score, vectorId, metadata, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           title = excluded.title,
+           summary = excluded.summary,
+           tags = excluded.tags,
+           reason = excluded.reason,
+           score = excluded.score,
+           vectorId = excluded.vectorId,
+           metadata = excluded.metadata,
+           updatedAt = excluded.updatedAt`
+      )
+      .bind(
+        id,
+        item.sourceId,
+        item.title,
+        item.url,
+        item.summary,
+        item.tags ? JSON.stringify(item.tags) : null,
+        item.reason,
+        item.score,
+        item.vectorId,
+        item.metadata ? JSON.stringify(item.metadata) : null,
+        now,
+        now
+      )
+      .run();
 
-  const created = await getItemById(db, id);
-  if (!created) throw new Error('Failed to create item');
+    const created = await getItemById(db, id);
+    if (!created) {
+      throw new Error('Failed to retrieve item after create/upsert');
+    }
 
-  await logger.info('ITEM_CREATED', {
-        itemId: id,
-        sourceId: item.sourceId,
-        url: item.url,
-        score: item.score,
-      });
-  
-      return created;
-  
+    await logger.info('ITEM_CREATED', {
+      itemId: id,
+      sourceId: item.sourceId,
+      url: item.url,
+      score: item.score,
+    });
+
+    return created;
   } catch (error) {
-    
-    await logger.error(
-      'ITEM_CREATE_FAILED',
-      error,
-      {
-        itemId: id,
-        url: item.url,
-        sourceId: item.sourceId,
-        detail: 'Failed during D1 upsert.',
-      }
-    );
+    await logger.error('ITEM_CREATE_FAILED', error, {
+      itemId: id,
+      url: item.url,
+      sourceId: item.sourceId,
+      detail: 'Failed during D1 upsert.',
+    });
     throw error; // Re-throw the error so the actor knows it failed
   }
 }
 
-/**
- * User Actions
- */
+// ============================================================================
+// USER ACTIONS
+// ============================================================================
 
+/**
+ * Records a user action (e.g., star, read, followup) in the database.
+ * Handles de-duplication for 'unstar'.
+ * @param db The D1Database instance.
+ * @param action The action to record.
+ */
 export async function createUserAction(
   db: D1Database,
   action: Omit<UserAction, 'id' | 'createdAt'>
@@ -254,6 +300,13 @@ export async function createUserAction(
     .run();
 }
 
+/**
+ * Fetches all actions for a specific user, optionally filtered by action type.
+ * @param db The D1Database instance.
+ * @param userId The ID of the user.
+ * @param action (Optional) The type of action to filter by (e.g., 'star').
+ * @returns A promise that resolves to an array of UserAction objects.
+ */
 export async function getUserActions(
   db: D1Database,
   userId: string,
@@ -273,10 +326,16 @@ export async function getUserActions(
   return (result.results || []).map(deserializeUserAction);
 }
 
-/**
- * User Preferences
- */
+// ============================================================================
+// USER PREFERENCES
+// ============================================================================
 
+/**
+ * Fetches the preferences for a specific user.
+ * @param db The D1Database instance.
+ * @param userId The ID of the user.
+ * @returns A promise that resolves to a UserPreferences object or null if not found.
+ */
 export async function getUserPreferences(
   db: D1Database,
   userId: string
@@ -296,6 +355,12 @@ export async function getUserPreferences(
   };
 }
 
+/**
+ * Creates or updates the preferences for a specific user (upsert).
+ * @param db The D1Database instance.
+ * @param userId The ID of the user.
+ * @param preferences A partial UserPreferences object to save.
+ */
 export async function setUserPreferences(
   db: D1Database,
   userId: string,
@@ -315,10 +380,15 @@ export async function setUserPreferences(
     .run();
 }
 
-/**
- * Serialization Helpers
- */
+// ============================================================================
+// SERIALIZATION HELPERS
+// ============================================================================
 
+/**
+ * Deserializes a raw D1 row into a strongly-typed Source object.
+ * @param row The raw database row.
+ * @returns A Source object.
+ */
 function deserializeSource(row: any): Source {
   return {
     id: row.id,
@@ -332,6 +402,11 @@ function deserializeSource(row: any): Source {
   };
 }
 
+/**
+ * Deserializes a raw D1 row into a strongly-typed Item object.
+ * @param row The raw database row.
+ * @returns An Item object.
+ */
 function deserializeItem(row: any): Item {
   return {
     id: row.id,
@@ -349,6 +424,11 @@ function deserializeItem(row: any): Item {
   };
 }
 
+/**
+ * Deserializes a raw D1 row into a strongly-typed UserAction object.
+ * @param row The raw database row.
+ * @returns A UserAction object.
+ */
 function deserializeUserAction(row: any): UserAction {
   return {
     id: row.id,
