@@ -31,6 +31,34 @@ interface RedditPost {
   };
 }
 
+interface RedditAuth {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+/**
+ * Exchanges a refresh token for a short-lived access token.
+ */
+async function getAccessToken(auth: RedditAuth): Promise<string> {
+  const response = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": "Basic " + btoa(`${auth.clientId}:${auth.clientSecret}`),
+      "User-Agent": "Cloudflare-Curation-Hub/1.0",
+    },
+    body: `grant_type=refresh_token&refresh_token=${auth.refreshToken}`,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Reddit token refresh failed: ${response.status}`);
+  }
+
+  const data = await response.json<{ access_token: string }>();
+  return data.access_token;
+}
+
 /**
  * Checks if a post matches the inclusion/exclusion criteria.
  */
@@ -40,65 +68,65 @@ function passesFilter(post: RedditPost, config: RedditConfig): boolean {
   const include = config.includeTerms?.map(t => t.toLowerCase()) || [];
   const exclude = config.excludeTerms?.map(t => t.toLowerCase()) || [];
 
-  // 1. Check for exclusions
   if (exclude.length > 0) {
     if (exclude.some(term => titleAndText.includes(term))) {
-      return false; // Exclude this post
+      return false; // Exclude
     }
   }
   
-  // 2. Check for inclusions (if any are specified)
   if (include.length > 0) {
     if (!include.some(term => titleAndText.includes(term))) {
-      return false; // Does not include a required term
+      return false; // Does not include required term
     }
   }
   
-  return true; // Pass
+  return true;
 }
 
 /**
  * Fetch Reddit posts
- *
- * Step 1 - Build Reddit API URL (authenticated or unauthenticated)
- * Step 2 - Check cache
- * Step 3 - Fetch from Reddit
- * Step 4 - Filter results by keywords
- * Step 5 - Normalize results
- * Step 6 - Cache results
+ * (UPDATED to handle auth and filtering)
  */
 export async function fetchRedditPosts(
-  config: RedditConfig, // We will update this type in `src/types/domain.ts`
+  config: RedditConfig,
   cache: KVNamespace,
-  token?: string // The OAuth token from env
+  auth?: RedditAuth // Updated from simple token
 ): Promise<Array<{ title: string; url: string; content: string; metadata: ItemMetadata }>> {
   const cacheKey = `reddit:${JSON.stringify(config)}`;
 
-  // Step 2 - Check cache
   const cached = await cache.get(cacheKey, 'json');
   if (cached) {
     return cached as any;
   }
 
-  // Step 1 - Build URL
   let baseUrl = 'https://www.reddit.com';
   let path = '';
+  const headers: HeadersInit = {
+    'User-Agent': 'Cloudflare-Curation-Hub/1.0',
+  };
 
-  // Check if this is an authenticated feed request
-  const isFeed = config.subreddit === 'MY_FEED'; 
+  const isFeed = config.subreddit === 'MY_FEED';
 
-  if (isFeed && token) {
-    // Authenticated request for the user's feed
-    baseUrl = 'https://oauth.reddit.com';
-    path = `/${config.sort || 'top'}.json`;
+  if (isFeed && auth) {
+    // --- NEW AUTH LOGIC ---
+    try {
+      const accessToken = await getAccessToken(auth);
+      baseUrl = 'https://oauth.reddit.com';
+      path = `/${config.sort || 'top'}.json`;
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    } catch (err) {
+      console.error("Reddit auth failed, falling back to public.", err);
+      // Fallback to unauthenticated public feed on auth error
+      path = `/r/all/${config.sort || 'top'}.json`;
+    }
+    // --- END NEW AUTH LOGIC ---
   } else {
-    // Unauthenticated request for a specific public subreddit
-    const subreddit = isFeed ? 'all' : config.subreddit; // Fallback to 'all' if token is missing
-    path = `/r/${subreddit}/${config.sort || 'top'}.json`;
+    // Unauthenticated request
+    path = `/r/${config.subreddit}/${config.sort || 'top'}.json`;
   }
 
   const params = new URLSearchParams({
-    limit: '100', // Fetch more to allow for filtering
+    limit: '100',
   });
 
   if ((config.sort === 'top' || config.sort === 'rising') && config.timeframe) {
@@ -106,16 +134,6 @@ export async function fetchRedditPosts(
   }
 
   const fullUrl = `${baseUrl}${path}?${params.toString()}`;
-
-  // Step 3 - Fetch from Reddit
-  const headers: HeadersInit = {
-    'User-Agent': 'Cloudflare-Curation-Hub/1.0',
-  };
-
-  if (isFeed && token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   const response = await fetch(fullUrl, { headers });
 
   if (!response.ok) {
@@ -125,10 +143,9 @@ export async function fetchRedditPosts(
   const data = await response.json<{ data: { children: RedditPost[] } }>();
   const posts = data.data?.children || [];
 
-  // Step 4 & 5 - Filter and Normalize results
   const results = posts
     .filter(post => passesFilter(post, config)) // Filter by keywords
-    .filter(post => !post.data.selftext?.includes('[removed]')) // Filter removed
+    .filter(post => !post.data.selftext?.includes('[removed]'))
     .map((post) => ({
       title: post.data.title,
       url: `https://reddit.com${post.data.permalink}`,
@@ -143,11 +160,9 @@ export async function fetchRedditPosts(
           post.data.thumbnail && post.data.thumbnail.startsWith('http')
             ? post.data.thumbnail
             : undefined,
-        blob: JSON.stringify(data)
       },
     }));
 
-  // Step 6 - Cache for 30 minutes
   await cache.put(cacheKey, JSON.stringify(results), { expirationTtl: 1800 });
 
   return results;
