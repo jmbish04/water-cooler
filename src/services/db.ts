@@ -24,6 +24,7 @@ import {
   SourceConfig,
 } from '../types/domain';
 import { generateItemId } from '../utils/hash';
+import { createLogger } from '../utils/logger';
 
 /**
  * Sources
@@ -162,9 +163,11 @@ export async function createItem(
   db: D1Database,
   item: Omit<Item, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Item> {
+  const logger = createLogger(db, 'DBService');
   const now = new Date().toISOString();
   const id = await generateItemId(item.sourceId, item.url);
 
+  try{
   // Upsert (update if exists)
   await db
     .prepare(
@@ -199,7 +202,30 @@ export async function createItem(
 
   const created = await getItemById(db, id);
   if (!created) throw new Error('Failed to create item');
-  return created;
+
+  await logger.info('ITEM_CREATED', {
+        itemId: id,
+        sourceId: item.sourceId,
+        url: item.url,
+        score: item.score,
+      });
+  
+      return created;
+  
+  } catch (error) {
+    
+    await logger.error(
+      'ITEM_CREATE_FAILED',
+      error,
+      {
+        itemId: id,
+        url: item.url,
+        sourceId: item.sourceId,
+        detail: 'Failed during D1 upsert.',
+      }
+    );
+    throw error; // Re-throw the error so the actor knows it failed
+  }
 }
 
 /**
