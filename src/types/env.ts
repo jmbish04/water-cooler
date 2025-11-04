@@ -20,8 +20,17 @@ export interface Env {
   // Variables
   AI_MODEL: string; // Default: @cf/openai/gpt-oss-120b
   ENVIRONMENT: string; // production | staging | development
+
+  // GITHUB
   GITHUB_TOKEN?: string;
+
+  // DISCORD
   DISCORD_BOT_TOKEN?: string;
+
+  // REDDIT
+  REDDIT_CLIENT_ID: string;
+  REDDIT_CLIENT_SECRET: string;
+  REDDIT_REFRESH_TOKEN: string;
 
   // D1 Database
   DB: D1Database;
