@@ -59,7 +59,7 @@
   "vectorize": [
     {
       "binding": "VEC",
-      "index_name": "water-cooler"
+      "index_name": "curation_vectors_v2"
     }
   ],
   "durable_objects": {
