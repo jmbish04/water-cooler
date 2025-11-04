@@ -34,3 +34,49 @@ export function createAiPayload(
     prompt: `${instructions}\n\n${prompt}`,
   };
 }
+
+/**
+ * Splits text into chunks
+ * A simple word-based chunker. For production, you might use a token-based chunker.
+ */
+export function chunkText(text: string, maxWordsPerChunk: number = 400): string[] {
+  const words = text.split(/\s+/); // Split by whitespace
+  const chunks: string[] = [];
+
+  if (words.length === 0) {
+    return [];
+  }
+
+  for (let i = 0; i < words.length; i += maxWordsPerChunk) {
+    const chunk = words.slice(i, i + maxWordsPerChunk).join(' ');
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+/**
+ * Averages an array of embedding vectors
+ */
+export function averageEmbeddings(embeddings: number[][]): number[] {
+  if (!embeddings || embeddings.length === 0) {
+    return [];
+  }
+
+  const vecLength = embeddings[0].length;
+  const avgVector: number[] = new Array(vecLength).fill(0);
+
+  // Sum all vectors
+  for (const vec of embeddings) {
+    if (vec.length !== vecLength) continue; // Sanity check
+    for (let i = 0; i < vecLength; i++) {
+      avgVector[i] += vec[i];
+    }
+  }
+
+  // Divide by the number of vectors to get the average
+  for (let i = 0; i < vecLength; i++) {
+    avgVector[i] = avgVector[i] / embeddings.length;
+  }
+
+  return avgVector;
+}
