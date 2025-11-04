@@ -24,6 +24,7 @@
 import { CurationRequest, CurationResult, QARequest, QAResponse, Item } from '../types/domain';
 import { getAIModel } from '../types/env';
 import { createLogger } from '../utils/logger';
+import { createAiPayload } from '../utils/ai';
 
 /**
  * Curate content with AI
