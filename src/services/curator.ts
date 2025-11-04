@@ -198,12 +198,31 @@ export async function answerQuestion(
  * Generate text embedding
  */
 async function generateEmbedding(ai: Ai, text: string): Promise<number[]> {
-  const response = await ai.run('@cf/baai/bge-base-en-v1.5', {
-    text: text.slice(0, 512), // truncate for model limits
+  const model = '@cf/baai/bge-large-en-v1.5';
+  
+  // 1. Chunk the text into pieces that fit the model's 512-token limit
+  // (Using ~400 words as a safe proxy)
+  const chunks = chunkText(text, 400);
+
+  if (chunks.length === 0) {
+    console.warn('No content to embed.');
+    return [];
+  }
+
+  // 2. Get embeddings for all chunks in a single batch
+  const response = await ai.run(model, {
+    text: chunks,
   });
 
-  // @ts-ignore - Workers AI types
-  return response.data[0] || [];
+  // @ts-ignore - Workers AI types are not always up-to-date
+  const allEmbeddings: number[][] = response.data;
+
+  if (!allEmbeddings || allEmbeddings.length === 0) {
+    throw new Error('Failed to generate embeddings');
+  }
+
+  // 3. Average the embeddings to get a single vector for the document
+  return averageEmbeddings(allEmbeddings);
 }
 
 /**
@@ -263,7 +282,16 @@ function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'>
 /**
  * Build Q&A prompt
  */
-function buildQAPrompt(item: Item, question: string, relatedItems: Item[]): string {
+function buildQAPrompt(
+  item: Item,
+  question: string,
+  relatedItems: Item[]
+): { instructions: string; prompt: string } {
+  const instructions = `You are a helpful assistant answering questions about curated content.
+Provide a clear, accurate answer based on the context below.
+If you cannot answer from the given context, say so.
+Keep your answer concise (2-3 sentences).`;
+
   let context = `Main Item:
 Title: ${item.title}
 URL: ${item.url}
@@ -278,15 +306,9 @@ Tags: ${item.tags?.join(', ') || 'N/A'}
     });
   }
 
-  return `You are a helpful assistant answering questions about curated content.
+  const prompt = `${context}\nQuestion: ${question}\n\nAnswer:`;
 
-${context}
-
-Question: ${question}
-
-Provide a clear, accurate answer based on the content above. If you cannot answer from the given context, say so. Keep your answer concise (2-3 sentences).
-
-Answer:`;
+  return { instructions, prompt };
 }
 
 /**
