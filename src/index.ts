@@ -162,6 +162,7 @@ async function queue(
 // Runs workflows on schedule:
 // - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
 // - Cron "0 9 * * *" (9am daily) — dailyDigest
+// - Cron "0 0 * * *" (midnight daily) — health checks
 // ---- REMOVED 'export' KEYWORD ----
 async function scheduled(
   event: ScheduledEvent,
@@ -186,6 +187,12 @@ async function scheduled(
   if (cron === '0 9 * * *') {
     const { dailyDigestWorkflow } = await import('./workflows/dailyDigest');
     ctx.waitUntil(dailyDigestWorkflow(env));
+  }
+
+  // Midnight daily — run health checks on all connectors
+  if (cron === '0 0 * * *') {
+    const { runDailyHealthChecks } = await import('./workflows/healthCheck');
+    ctx.waitUntil(runDailyHealthChecks(env));
   }
 }
 

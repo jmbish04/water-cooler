@@ -46,6 +46,14 @@ import {
   getAllLatestHealthChecks,
   getLatestHealthCheck,
 } from '../services/health';
+import {
+  getActiveTestProfiles,
+  getTestProfileById,
+  createTestProfile,
+  getEnrichedTestResults,
+  runAiTest,
+  getAiLogsForTestResult,
+} from '../services/testing';
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -334,6 +342,115 @@ api.post('/health/check', async (c) => {
     }
 
     return jsonOk(c, { healthChecks: results, count: results.length });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/tests
+ * Get all active test profiles
+ */
+api.get('/tests', async (c) => {
+  try {
+    const profiles = await getActiveTestProfiles(c.env.DB);
+    return jsonOk(c, { tests: profiles });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * POST /api/tests
+ * Create a new test profile
+ */
+api.post('/tests', async (c) => {
+  try {
+    const body = await c.req.json();
+    const profile = await createTestProfile(c.env.DB, {
+      name: body.name,
+      description: body.description || null,
+      features: body.features || null,
+      possibleErrorsWResolutions: body.possibleErrorsWResolutions || null,
+      isActive: body.isActive !== false,
+    });
+    return jsonOk(c, { test: profile });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/tests/:id/results
+ * Get test results for a specific test profile
+ */
+api.get('/tests/:id/results', async (c) => {
+  try {
+    const testId = parseInt(c.req.param('id'));
+    const results = await getEnrichedTestResults(c.env.DB, { limit: 100 });
+
+    // Filter by test profile ID
+    const filtered = results.filter(r => r.testProfileId === testId);
+
+    return jsonOk(c, { results: filtered });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * POST /api/tests/:id/run
+ * Run a specific test
+ */
+api.post('/tests/:id/run', async (c) => {
+  try {
+    const testId = parseInt(c.req.param('id'));
+    const body = await c.req.json();
+
+    const model = body.model || c.env.AI_MODEL || '@cf/openai/gpt-oss-120b';
+    const prompt = body.prompt || 'Test prompt';
+
+    const result = await runAiTest(c.env.DB, c.env.AI, testId, model, prompt);
+
+    return jsonOk(c, result);
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/test-results
+ * Get all test results with optional filtering
+ */
+api.get('/test-results', async (c) => {
+  try {
+    const query = c.req.query();
+    const sessionId = query.sessionId;
+    const onlyFailures = query.onlyFailures === 'true';
+    const limit = query.limit ? parseInt(query.limit) : 50;
+
+    const results = await getEnrichedTestResults(c.env.DB, {
+      sessionId,
+      onlyFailures,
+      limit,
+    });
+
+    return jsonOk(c, { results, total: results.length });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/test-results/:id/ai-logs
+ * Get AI execution logs for a specific test result
+ */
+api.get('/test-results/:id/ai-logs', async (c) => {
+  try {
+    const resultId = parseInt(c.req.param('id'));
+    const logs = await getAiLogsForTestResult(c.env.DB, resultId);
+
+    return jsonOk(c, { logs });
   } catch (error) {
     return jsonError(c, error instanceof Error ? error : String(error), 500);
   }

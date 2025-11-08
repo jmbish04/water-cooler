@@ -92,6 +92,11 @@
       "name": "MAILER"
     }
   ],
+  "triggers": {
+    "crons": [
+      "0 0 * * *"
+    ]
+  },
   "logpush": false,
   "placement": {
     "mode": "smart"
