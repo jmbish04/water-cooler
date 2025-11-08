@@ -7,18 +7,27 @@
  * - Trigger manual scans
  */
 
-import { Stack, Title, Text, Button, Card, Group } from '@mantine/core';
+import { useState } from 'react';
+import { Stack, Title, Text, Button, Card, Group, Modal } from '@mantine/core';
 import { IconRefresh, IconMail } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { triggerScan } from '../lib/api';
+import ScanLogViewer from '../components/ScanLogViewer';
 
 export default function Settings() {
+  const [showLogViewer, setShowLogViewer] = useState(false);
+
   const handleScan = async () => {
     try {
+      // Open log viewer first
+      setShowLogViewer(true);
+
+      // Trigger the scan
       await triggerScan();
+
       notifications.show({
         title: 'Scan Triggered',
-        message: 'Source scan has been queued',
+        message: 'Source scan has been queued - watch the logs below',
         color: 'green',
       });
     } catch (error) {
@@ -27,6 +36,7 @@ export default function Settings() {
         message: 'Failed to trigger scan',
         color: 'red',
       });
+      setShowLogViewer(false);
     }
   };
 
@@ -93,6 +103,19 @@ export default function Settings() {
           </Text>
         </Stack>
       </Card>
+
+      {/* Scan Log Viewer Modal */}
+      <Modal
+        opened={showLogViewer}
+        onClose={() => setShowLogViewer(false)}
+        title="Real-Time Scan Logs"
+        size="xl"
+        styles={{
+          body: { height: '500px', padding: 0 },
+        }}
+      >
+        <ScanLogViewer onClose={() => setShowLogViewer(false)} />
+      </Modal>
     </Stack>
   );
 }
