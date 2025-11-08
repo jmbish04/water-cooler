@@ -256,8 +256,25 @@ function buildCurationPrompt(request: CurationRequest): { instructions: string; 
  */
 function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'> {
   try {
-    // Extract JSON from response
-    let text = typeof response === 'string' ? response : response.response || JSON.stringify(response);
+    // Extract text from response object
+    // gpt-oss-120b returns { response: "text content" }
+    let text = '';
+    if (typeof response === 'string') {
+      text = response;
+    } else if (response && typeof response === 'object') {
+      // Try common response field names
+      text = response.response || response.text || response.content || response.output || '';
+
+      // If no text found, try to stringify
+      if (!text && response.choices && response.choices[0]?.message?.content) {
+        text = response.choices[0].message.content;
+      }
+    }
+
+    if (!text) {
+      console.error('[PARSE_ERROR] No text content in response:', JSON.stringify(response));
+      throw new Error('No text content in AI response');
+    }
 
     // Try to find JSON in the response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -265,15 +282,15 @@ function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'>
       const parsed = JSON.parse(jsonMatch[0]);
       return {
         summary: parsed.summary || 'No summary available',
-        tags: parsed.tags || [],
+        tags: Array.isArray(parsed.tags) ? parsed.tags : [],
         reason: parsed.reason || 'Interesting content',
-        score: Math.max(0, Math.min(1, parsed.score || 0.5)),
+        score: Math.max(0, Math.min(1, parseFloat(parsed.score) || 0.5)),
       };
     }
 
     throw new Error('No valid JSON found in response');
   } catch (error) {
-    console.error('[PARSE_ERROR]', error, response);
+    console.error('[PARSE_ERROR]', error, 'Response:', JSON.stringify(response).substring(0, 500));
     // Fallback
     return {
       summary: 'Summary unavailable',
@@ -320,13 +337,29 @@ Tags: ${item.tags?.join(', ') || 'N/A'}
  * Parse Q&A response
  */
 function parseQAResponse(response: any): string {
+  // Handle string responses
   if (typeof response === 'string') {
     return response.trim();
   }
 
-  if (response.response) {
-    return response.response.trim();
+  // Handle object responses - extract text from various possible fields
+  if (response && typeof response === 'object') {
+    // Try common response field names
+    const text = response.response || response.text || response.content || response.output || response.answer;
+
+    if (text && typeof text === 'string') {
+      return text.trim();
+    }
+
+    // Try OpenAI-style response
+    if (response.choices && response.choices[0]?.message?.content) {
+      return response.choices[0].message.content.trim();
+    }
+
+    // If we still don't have text, log and return error message
+    console.error('[QA_PARSE_ERROR] Could not extract text from response:', JSON.stringify(response).substring(0, 500));
+    return 'Unable to generate answer. Please try again.';
   }
 
-  return JSON.stringify(response);
+  return 'Invalid response format.';
 }
