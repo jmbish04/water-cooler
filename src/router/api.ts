@@ -322,7 +322,7 @@ api.post('/health/check', async (c) => {
     const sourceId = body.sourceId as number | undefined;
 
     const sources = sourceId
-      ? [await getItemById(c.env.DB, String(sourceId))]
+      ? [await getSourceById(c.env.DB, sourceId)]
       : await getSources(c.env.DB, true);
 
     const results = [];
