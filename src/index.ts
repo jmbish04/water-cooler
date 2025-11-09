@@ -71,6 +71,24 @@ app.route('/api', apiRoutes);
 app.route('/', openapiRoutes);
 
 /**
+ * WebSocket route for real-time scan logs
+ */
+app.get('/scheduler', async (c) => {
+  // Check if this is a WebSocket upgrade request
+  const upgradeHeader = c.req.header('Upgrade');
+  if (upgradeHeader !== 'websocket') {
+    return c.text('Expected WebSocket upgrade', 426);
+  }
+
+  // Get scheduler actor
+  const schedulerId = c.env.SCHEDULER_ACTOR.idFromName('scheduler');
+  const schedulerStub = c.env.SCHEDULER_ACTOR.get(schedulerId);
+
+  // Forward the WebSocket upgrade request to the actor
+  return schedulerStub.fetch(c.req.raw);
+});
+
+/**
  * Static assets (React frontend)
  *
  * Serve all static files from /public directory
@@ -162,6 +180,7 @@ async function queue(
 // Runs workflows on schedule:
 // - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
 // - Cron "0 9 * * *" (9am daily) — dailyDigest
+// - Cron "0 0 * * *" (midnight daily) — health checks
 // ---- REMOVED 'export' KEYWORD ----
 async function scheduled(
   event: ScheduledEvent,
@@ -186,6 +205,12 @@ async function scheduled(
   if (cron === '0 9 * * *') {
     const { dailyDigestWorkflow } = await import('./workflows/dailyDigest');
     ctx.waitUntil(dailyDigestWorkflow(env));
+  }
+
+  // Midnight daily — run health checks on all connectors
+  if (cron === '0 0 * * *') {
+    const { runDailyHealthChecks } = await import('./workflows/healthCheck');
+    ctx.waitUntil(runDailyHealthChecks(env));
   }
 }
 
