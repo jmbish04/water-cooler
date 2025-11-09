@@ -110,7 +110,7 @@ function deserializeSource(row: any): Source {
   return {
     id: row.id,
     name: row.name,
-    type: row.type as any,
+    type: row.type as SourceType,
     config: tryParseJson<SourceConfig>(row.config) || ({} as SourceConfig),
     enabled: Boolean(row.enabled),
     lastScan: row.lastScan || null,
