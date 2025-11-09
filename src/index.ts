@@ -1,200 +1,70 @@
-/**
- * AI-Curated Discovery Hub — Main Entry Point
- *
- * Purpose:
- * - Hono application with API routes and static asset serving
- * - Exports Durable Object classes for Cloudflare Workers
- * - Handles queue consumers for async scanning
- * - Serves React frontend from /public via assets binding
- *
- * AI Agent Hints:
- * - All routes under /api
- * - Static assets (React app) served from /public
- * - No inline HTML/JS — all UI is static files
- * - OpenAPI spec at /openapi.json and /openapi.yaml
- * - Health check at /health
- *
- * Architecture:
- * - Hono for routing and middleware
- * - Durable Objects for stateful actors
- * - Vectorize for semantic search
- * - D1 for relational data
- * - AI binding for curation and Q&A
- */
-
-import { Hono } from 'hono';
-import { Env, validateEnv } from './types/env';
-import { corsMiddleware, requestLogger, errorHandler } from './router/middleware';
-import apiRoutes from './router/api';
-import openapiRoutes from './router/openapi';
-
-// Export Durable Object classes
-export { SchedulerActor } from './actors/SchedulerActor';
-export { CuratorActor } from './actors/CuratorActor';
-export { GitHubActor } from './actors/GitHubActor';
-export { AppStoreActor } from './actors/AppStoreActor';
-export { RedditActor } from './actors/RedditActor';
-export { DiscordActor } from './actors/DiscordActor';
-export { UserSessionActor } from './actors/UserSessionActor';
+import { buildRouter } from "./router";
+import { RoomDO } from "./do/RoomDO";
+import { buildOpenAPIDocument } from "./utils/openapi";
+import { mcpRoutes } from "./mcp";
+import type { Env } from "./types";
+import YAML from "yaml";
 
 /**
- * Main Hono application
+ * The main entry point for the Cloudflare Worker.
+ * This handler routes requests to the appropriate handlers based on the request path and headers.
  */
-const app = new Hono<{ Bindings: Env }>();
-
-/**
- * Global middleware
- */
-app.use('*', corsMiddleware);
-app.use('*', errorHandler);
-app.use('/api/*', requestLogger);
-
-/**
- * Health check
- */
-app.get('/health', (c) => {
-  return c.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-  });
-});
-
-/**
- * API routes
- */
-app.route('/api', apiRoutes);
-
-/**
- * OpenAPI routes
- */
-app.route('/', openapiRoutes);
-
-/**
- * Static assets (React frontend)
- *
- * Serve all static files from /public directory
- * Built by Vite from /ui source
- */
-app.get('/*', async (c) => {
-  // Use assets binding to serve static files
-  const url = new URL(c.req.url);
-  const assetResponse = await c.env.ASSETS.fetch(url.toString());
-
-  // If asset found, return it
-  if (assetResponse.status === 200) {
-    return assetResponse;
-  }
-
-  // Fallback to index.html for SPA routing
-  const indexUrl = new URL(url);
-  indexUrl.pathname = '/index.html';
-  return c.env.ASSETS.fetch(indexUrl.toString());
-});
-
-/**
- * Queue consumer for scan queue
- *
- * Processes scan messages from SCAN_QUEUE
- * Routes to appropriate source actor
- */
-// ---- REMOVED 'export' KEYWORD ----
-async function queue(
-  batch: MessageBatch,
-  env: Env
-): Promise<void> {
-  for (const message of batch.messages) {
-    try {
-      const payload = message.body as {
-        type: 'scan';
-        sourceId: number;
-        source: string;
-        config: any;
-      };
-
-      if (payload.type === 'scan') {
-        // Route to appropriate actor
-        let actorBinding: DurableObjectNamespace;
-        switch (payload.source) {
-          case 'github':
-            actorBinding = env.GITHUB_ACTOR;
-            break;
-          case 'appstore':
-            actorBinding = env.APPSTORE_ACTOR;
-            break;
-          case 'reddit':
-            actorBinding = env.REDDIT_ACTOR;
-            break;
-          case 'discord':
-            actorBinding = env.DISCORD_ACTOR;
-            break;
-          default:
-            console.error(`Unknown source type: ${payload.source}`);
-            continue;
-        }
-
-        // Get actor stub and trigger scan
-        const actorId = actorBinding.idFromName(`source-${payload.sourceId}`);
-        const actorStub = actorBinding.get(actorId);
-
-        await actorStub.fetch('http://actor/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sourceId: payload.sourceId,
-            config: payload.config,
-          }),
-        });
-      }
-
-      // Ack message
-      message.ack();
-    } catch (error) {
-      console.error('[QUEUE_CONSUMER_ERROR]', error);
-      // Retry by not acking
-      message.retry();
-    }
-  }
-}
-
-// Scheduled handler (cron triggers)
-//
-// Runs workflows on schedule:
-// - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
-// - Cron "0 9 * * *" (9am daily) — dailyDigest
-// ---- REMOVED 'export' KEYWORD ----
-async function scheduled(
-  event: ScheduledEvent,
-  env: Env,
-  ctx: ExecutionContext
-): Promise<void> {
-  const cron = event.cron;
-
-  // Every 6 hours — trigger scan workflow
-  if (cron === '0 */6 * * *') {
-    const schedulerId = env.SCHEDULER_ACTOR.idFromName('scheduler');
-    const schedulerStub = env.SCHEDULER_ACTOR.get(schedulerId);
-
-    ctx.waitUntil(
-      schedulerStub.fetch('http://scheduler/trigger', {
-        method: 'POST',
-      })
-    );
-  }
-
-  // 9am daily — trigger digest workflow
-  if (cron === '0 9 * * *') {
-    const { dailyDigestWorkflow } = await import('./workflows/dailyDigest');
-    ctx.waitUntil(dailyDigestWorkflow(env));
-  }
-}
-
-/**
- * Default export (fetch handler)
- */
-// ---- MODIFIED DEFAULT EXPORT ----
 export default {
-  fetch: app.fetch,
-  queue: queue,
-  scheduled: scheduled
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    // OpenAPI documentation endpoints.
+    // The documentation is generated dynamically from the Zod schemas.
+    if (url.pathname === "/openapi.json") {
+      const doc = buildOpenAPIDocument(url.origin);
+      return new Response(JSON.stringify(doc, null, 2), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.pathname === "/openapi.yaml") {
+      const doc = buildOpenAPIDocument(url.origin);
+      const yaml = YAML.stringify(doc);
+      return new Response(yaml, {
+        headers: { "Content-Type": "application/yaml" },
+      });
+    }
+
+    // WebSocket upgrade endpoint.
+    // Requests to /ws are delegated to the RoomDO Durable Object.
+    if (url.pathname === "/ws" && request.headers.get("Upgrade") === "websocket") {
+      const projectId = url.searchParams.get("projectId") ?? "default";
+      const id = env.ROOM_DO.idFromName(projectId);
+      const stub = env.ROOM_DO.get(id);
+      return stub.fetch(request);
+    }
+
+    // Model Context Protocol (MCP) endpoints.
+    if (url.pathname.startsWith("/mcp/")) {
+      if (url.pathname === "/mcp/tools" && request.method === "GET") {
+        const tools = await mcpRoutes.tools();
+        return new Response(JSON.stringify(tools), { headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/mcp/execute" && request.method === "POST") {
+        try {
+          const body = await request.json();
+          const result = await mcpRoutes.execute(env, ctx, body);
+          return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+        } catch (e: any) {
+          return new Response(JSON.stringify({ success: false, error: e.message }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+      return new Response("MCP endpoint not found", { status: 404 });
+    }
+
+    // For all other requests, delegate to the Hono router.
+    // This handles the REST API and the generic RPC endpoint.
+    const app = buildRouter();
+    return app.fetch(request, env, ctx);
+  },
 };
+
+// Export the Durable Object class for wrangler.
+export { RoomDO };

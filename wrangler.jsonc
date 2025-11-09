@@ -1,99 +1,21 @@
-/**
- * Wrangler Configuration for AI-Curated Discovery Hub
- */
 {
-  "name": "water-cooler",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-03-07",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
-  },
-  "vars": {
-    "AI_MODEL": "@cf/openai/gpt-oss-120b",
-    "ENVIRONMENT": "production"
-  },
-  "assets": {
-    "directory": "./public",
-    "binding": "ASSETS"
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "water-cooler",
-      "database_id": "72a62149-b39a-4390-912a-6aef100f3a76",
-      "migrations_dir": "migrations"
-    }
-  ],
-  "kv_namespaces": [
-    {
-      "binding": "CACHE",
-      "id": "f4669a0eecf0460b8e86beca65853a07"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "R2",
-      "bucket_name": "water-cooler-assets"
-    }
-  ],
-  "queues": {
-    "producers": [
-      {
-        "binding": "SCAN_QUEUE",
-        "queue": "water-cooler-scan"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "water-cooler-scan",
-        "max_batch_size": 10,
-        "max_batch_timeout": 30
-      }
-    ]
-  },
-  "ai": {
-    "binding": "AI"
-  },
-  "vectorize": [
-    {
-      "binding": "VEC",
-      "index_name": "curation_vectors_v2"
-    }
-  ],
-  "durable_objects": {
-    "bindings": [
-      { "name": "SCHEDULER_ACTOR", "class_name": "SchedulerActor" },
-      { "name": "GITHUB_ACTOR", "class_name": "GitHubActor" },
-      { "name": "APPSTORE_ACTOR", "class_name": "AppStoreActor" },
-      { "name": "REDDIT_ACTOR", "class_name": "RedditActor" },
-      { "name": "DISCORD_ACTOR", "class_name": "DiscordActor" },
-      { "name": "CURATOR_ACTOR", "class_name": "CuratorActor" },
-      { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_classes": [
-        "SchedulerActor",
-        "GitHubActor",
-        "AppStoreActor",
-        "RedditActor",
-        "DiscordActor",
-        "CuratorActor",
-        "UserSessionActor"
-      ]
-    }
-  ],
-  "send_email": [
-    {
-      "name": "MAILER"
-    }
-  ],
-  "logpush": false,
-  "placement": {
-    "mode": "smart"
-  }
+"name": "multi-protocol-worker",
+"main": "src/index.ts",
+"compatibility_date": "2025-03-07",
+"compatibility_flags": ["nodejs_compat"],
+"observability": {
+"enabled": true,
+"head_sampling_rate": 1
+},
+"durable_objects": {
+"bindings": [
+{ "name": "ROOM_DO", "class_name": "RoomDO" }
+]
+},
+"migrations": [
+{
+"tag": "v1",
+"new_classes": ["RoomDO"]
+}
+]
 }
