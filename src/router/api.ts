@@ -387,12 +387,9 @@ api.post('/tests', async (c) => {
 api.get('/tests/:id/results', async (c) => {
   try {
     const testId = parseInt(c.req.param('id'));
-    const results = await getEnrichedTestResults(c.env.DB, { limit: 100 });
+    const results = await getEnrichedTestResults(c.env.DB, { testProfileId: testId, limit: 100 });
 
-    // Filter by test profile ID
-    const filtered = results.filter(r => r.testProfileId === testId);
-
-    return jsonOk(c, { results: filtered });
+    return jsonOk(c, { results });
   } catch (error) {
     return jsonError(c, error instanceof Error ? error : String(error), 500);
   }
