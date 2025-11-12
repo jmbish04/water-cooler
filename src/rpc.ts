@@ -24,10 +24,10 @@ const runAnalysis = async (params: unknown) => {
     return { success: true as const, report: { taskId: input.taskId, score: 0.82, notes: "Analysis complete." } };
 };
 
-export const rpcRegistry: Record<string, (params: unknown, env: Env, ctx: ExecutionContext) => Promise<any>> = {
-  createTask: (p) => createTask(p),
-  listTasks: () => listTasks(),
-  runAnalysis: (p) => runAnalysis(p),
+export const rpcRegistry = {
+  createTask,
+  listTasks,
+  runAnalysis,
 };
 
 
