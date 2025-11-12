@@ -8,7 +8,7 @@ export const Task = z.object({
   id: z.string().uuid(),
   title: z.string().min(1),
   status: z.enum(["pending", "running", "done"]).default("pending"),
-  createdAt: z.string(),
+  createdAt: z.string().datetime(),
 });
 
 export const CreateTaskRequest = z.object({
