@@ -1,9 +1,18 @@
 import { buildRouter } from "./router";
 import { RoomDO } from "./do/RoomDO";
-import { buildOpenAPIDocument } from "./utils/openapi";
 import { mcpRoutes } from "./mcp";
 import type { Env } from "./types";
 import YAML from "yaml";
+
+const app = buildRouter();
+
+app.doc('/openapi.json', {
+  openapi: '3.1.0',
+  info: {
+    title: 'Multi-Protocol Worker API',
+    version: '1.0.0',
+  },
+});
 
 /**
  * The main entry point for the Cloudflare Worker.
@@ -12,22 +21,6 @@ import YAML from "yaml";
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-
-    // OpenAPI documentation endpoints.
-    // The documentation is generated dynamically from the Zod schemas.
-    if (url.pathname === "/openapi.json") {
-      const doc = buildOpenAPIDocument(url.origin);
-      return new Response(JSON.stringify(doc, null, 2), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (url.pathname === "/openapi.yaml") {
-      const doc = buildOpenAPIDocument(url.origin);
-      const yaml = YAML.stringify(doc);
-      return new Response(yaml, {
-        headers: { "Content-Type": "application/yaml" },
-      });
-    }
 
     // WebSocket upgrade endpoint.
     // Requests to /ws are delegated to the RoomDO Durable Object.
@@ -61,7 +54,6 @@ export default {
 
     // For all other requests, delegate to the Hono router.
     // This handles the REST API and the generic RPC endpoint.
-    const app = buildRouter();
     return app.fetch(request, env, ctx);
   },
 };

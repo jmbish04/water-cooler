@@ -1,4 +1,5 @@
 import type { DurableObject } from "cloudflare:workers";
+import { broadcast } from "../utils/ws";
 
 /**
  * A Durable Object that manages a WebSocket chat room.
@@ -40,21 +41,11 @@ export class RoomDO implements DurableObject {
    * @param ws The WebSocket the message was received on.
    * @param message The message content.
    */
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const textMessage = typeof message === "string" ? message : new TextDecoder().decode(message);
 
     // Broadcast the received message to all other connected clients in this room.
-    // `this.ctx.getWebSockets()` returns all open WebSockets connected to this DO.
-    for (const sock of this.ctx.getWebSockets()) {
-      if (sock !== ws) {
-        try {
-          sock.send(textMessage);
-        } catch (e) {
-          // This can happen if a client disconnects abruptly.
-          console.error("Failed to send message to a WebSocket:", e);
-        }
-      }
-    }
+    broadcast([...this.ctx.getWebSockets()], textMessage, ws);
   }
 
   /**

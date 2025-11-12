@@ -10,6 +10,8 @@
 import { Card, Text, Badge, Group, Button, ActionIcon, Stack, Progress } from '@mantine/core';
 import { IconStar, IconStarFilled, IconBookmark, IconExternalLink, IconSparkles } from '@tabler/icons-react';
 import { Item } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { fetchAnnotation } from '../lib/useAnnotation';
 
 interface ItemCardProps {
   item: Item;
@@ -21,6 +23,14 @@ interface ItemCardProps {
 }
 
 export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, followup }: ItemCardProps) {
+  const [ai, setAi] = useState<{category:string;score:number;summary:string}|null>(null);
+
+  useEffect(() => {
+    fetchAnnotation({ title: item.title, url: item.url })
+      .then(setAi)
+      .catch(() => setAi({ category: 'Uncategorized', score: 50, summary: 'No summary available' }));
+  }, [item.title, item.url]);
+
   const sourceColors: Record<string, string> = {
     github: 'blue',
     appstore: 'grape',
@@ -63,17 +73,15 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
               {item.title}
             </Text>
             <Text size="sm" c="dimmed">
-              {Math.round(item.score * 100)}%
+              {ai ? `${ai.score}%` : '...'}
             </Text>
           </Group>
-          <Progress value={item.score * 100} size="xs" mb="md" />
+          <Progress value={ai?.score ?? 0} size="xs" mb="md" />
         </div>
 
-        {item.summary && (
-          <Text size="sm" c="dimmed" lineClamp={3}>
-            {item.summary}
-          </Text>
-        )}
+        <Text size="sm" c="dimmed" lineClamp={3}>
+          {ai?.summary ?? 'Analyzing…'}
+        </Text>
 
         {item.tags && item.tags.length > 0 && (
           <Group gap="xs">
@@ -82,6 +90,7 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
                 {tag}
               </Badge>
             ))}
+            {ai && <Badge size="sm" variant="outline">{ai.category}</Badge>}
           </Group>
         )}
 

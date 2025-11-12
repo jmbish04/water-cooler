@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import worker from './index';
 
 describe('Multi-protocol Worker', () => {
@@ -15,13 +15,6 @@ describe('Multi-protocol Worker', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.openapi).toBe('3.1.0');
-  });
-
-  it('should return OpenAPI YAML on GET /openapi.yaml', async () => {
-    const res = await worker.fetch(new Request('http://localhost/openapi.yaml'), env, {} as any);
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(text).toContain('openapi: 3.1.0');
   });
 
   it('should handle REST API requests', async () => {
@@ -58,5 +51,26 @@ describe('Multi-protocol Worker', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.result.task.title).toBe('MCP Task');
+  });
+
+  it('should handle AI annotation requests', async () => {
+    const aiResponse = {
+      category: 'Technology',
+      score: 95,
+      summary: 'This is a test summary.',
+    };
+    env.AI = {
+      run: vi.fn().mockResolvedValue({ response: JSON.stringify(aiResponse) }),
+    };
+
+    const res = await worker.fetch(new Request('http://localhost/ai/annotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Test Title' }),
+    }), env, {} as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual(aiResponse);
   });
 });
