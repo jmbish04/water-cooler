@@ -1,18 +1,13 @@
 /**
- * D1 Database Service Layer
+ * D1 Database Service Layer (Kysely)
  *
- * This file acts as a type-safe data access layer (DAL) for the application.
- * It abstracts all D1 database operations, ensuring that all interactions
- * (CRUD) are standardized, secure (using prepared statements), and observable.
+ * Type-safe data access layer using Kysely query builder.
+ * Replaces raw SQL queries with type-safe operations.
  *
  * Responsibilities:
- * - CRUD operations for `sources`, `items`, `user_actions`, and `user_preferences`.
- * - Type-safe serialization and deserialization between D1 rows and domain types.
- * - Comprehensive logging for key write operations (createItem) to audit_logs.
- *
- * AI Agent Hints:
- * - All JSON fields (config, metadata, tags) are auto-serialized/deserialized.
- * - This layer returns strongly-typed domain objects, not raw D1 rows.
+ * - CRUD operations for all tables
+ * - Type-safe serialization/deserialization
+ * - Comprehensive logging for write operations
  */
 
 import {
@@ -24,6 +19,7 @@ import {
   ItemMetadata,
   SourceConfig,
 } from '../types/domain';
+import { getDb, tryParseJson, toJsonString } from '../db/kysely';
 import { generateItemId } from '../utils/hash';
 import { createLogger } from '../utils/logger';
 
@@ -32,72 +28,95 @@ import { createLogger } from '../utils/logger';
 // ============================================================================
 
 /**
- * Fetches all data sources from the database.
- * @param db The D1Database instance.
- * @param enabled (Optional) If true, fetches only enabled sources.
- * @returns A promise that resolves to an array of Source objects.
+ * Fetches all data sources from the database
  */
 export async function getSources(db: D1Database, enabled?: boolean): Promise<Source[]> {
-  let query = 'SELECT * FROM sources';
-  const params: unknown[] = [];
+  const kysely = getDb(db);
+
+  let query = kysely.selectFrom('sources').selectAll();
 
   if (enabled !== undefined) {
-    query += ' WHERE enabled = ?';
-    params.push(enabled ? 1 : 0);
+    query = query.where('enabled', '=', enabled ? 1 : 0);
   }
 
-  query += ' ORDER BY name ASC';
+  const rows = await query.orderBy('name', 'asc').execute();
 
-  const result = await db.prepare(query).bind(...params).all();
-  return (result.results || []).map(deserializeSource);
+  return rows.map(deserializeSource);
 }
 
 /**
- * Fetches a single source by its unique ID.
- * @param db The D1Database instance.
- * @param id The ID of the source to fetch.
- * @returns A promise that resolves to a Source object or null if not found.
+ * Fetches a single source by its unique ID
  */
 export async function getSourceById(db: D1Database, id: number): Promise<Source | null> {
-  const result = await db.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first();
-  return result ? deserializeSource(result) : null;
+  const kysely = getDb(db);
+
+  const row = await kysely
+    .selectFrom('sources')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  return row ? deserializeSource(row) : null;
 }
 
 /**
- * Creates a new data source in the database.
- * @param db The D1Database instance.
- * @param source The source object to create (without id, timestamps).
- * @returns A promise that resolves to the newly created Source object.
+ * Creates a new data source in the database
  */
 export async function createSource(
   db: D1Database,
   source: Omit<Source, 'id' | 'createdAt' | 'updatedAt' | 'lastScan'>
 ): Promise<Source> {
+  const kysely = getDb(db);
   const now = new Date().toISOString();
-  const result = await db
-    .prepare(
-      `INSERT INTO sources (name, type, config, enabled, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?)
-       RETURNING *`
-    )
-    .bind(source.name, source.type, JSON.stringify(source.config), source.enabled ? 1 : 0, now, now)
-    .first();
 
-  if (!result) throw new Error('Failed to create source');
+  const result = await kysely
+    .insertInto('sources')
+    .values({
+      name: source.name,
+      type: source.type,
+      config: toJsonString(source.config),
+      enabled: source.enabled ? 1 : 0,
+      createdAt: now,
+      updatedAt: now,
+      lastScan: null,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
   return deserializeSource(result);
 }
 
 /**
- * Updates the `lastScan` timestamp for a specific source.
- * @param db The D1Database instance.
- * @param id The ID of the source to update.
+ * Updates the lastScan timestamp for a specific source
  */
 export async function updateSourceLastScan(db: D1Database, id: number): Promise<void> {
+  const kysely = getDb(db);
   const now = new Date().toISOString();
-  await db
-    .prepare('UPDATE sources SET lastScan = ?, updatedAt = ? WHERE id = ?')
-    .bind(now, now, id)
-    .run();
+
+  await kysely
+    .updateTable('sources')
+    .set({
+      lastScan: now,
+      updatedAt: now,
+    })
+    .where('id', '=', id)
+    .execute();
+}
+
+/**
+ * Deserialize source row from database
+ */
+function deserializeSource(row: any): Source {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type as SourceType,
+    config: tryParseJson<SourceConfig>(row.config) || ({} as SourceConfig),
+    enabled: Boolean(row.enabled),
+    lastScan: row.lastScan || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 // ============================================================================
@@ -105,114 +124,130 @@ export async function updateSourceLastScan(db: D1Database, id: number): Promise<
 // ============================================================================
 
 /**
- * Fetches a paginated list of items based on complex filter criteria.
- * @param db The D1Database instance.
- * @param query A SearchQuery object containing filters (source, score, tags, user actions).
- * @returns A promise that resolves to an object containing the items and total count.
+ * Fetches a paginated list of items based on complex filter criteria
  */
 export async function getItems(
   db: D1Database,
   query: SearchQuery
 ): Promise<{ items: Item[]; total: number }> {
-  // Build WHERE clause
-  let where = '1=1';
-  const params: unknown[] = [];
+  const kysely = getDb(db);
 
+  // Build base query with join
+  let itemsQuery = kysely
+    .selectFrom('items as i')
+    .innerJoin('sources as s', 's.id', 'i.sourceId')
+    .selectAll('i');
+
+  // Apply filters
   if (query.source) {
-    where += ' AND s.type = ?';
-    params.push(query.source);
+    itemsQuery = itemsQuery.where('s.type', '=', query.source);
   }
 
   if (query.minScore !== undefined) {
-    where += ' AND i.score >= ?';
-    params.push(query.minScore);
+    itemsQuery = itemsQuery.where('i.score', '>=', query.minScore);
   }
 
   if (query.tags && query.tags.length > 0) {
-    // Simple tag matching (JSON LIKE)
-    const tagConditions = query.tags.map(() => 'i.tags LIKE ?').join(' OR ');
-    where += ` AND (${tagConditions})`;
-    query.tags.forEach((tag) => params.push(`%"${tag}"%`));
+    // Simple tag matching with LIKE
+    const tagConditions = query.tags.map(tag => `i.tags LIKE '%"${tag}"%'`).join(' OR ');
+    itemsQuery = itemsQuery.where(({ eb, or }) =>
+      or(query.tags!.map(tag => eb('i.tags', 'like', `%"${tag}"%`)))
+    );
   }
 
-  // User action filters (if userId provided)
+  // User action filters
   if (query.userId) {
     if (query.starred) {
-      where += ` AND EXISTS (
-        SELECT 1 FROM user_actions
-        WHERE itemId = i.id AND userId = ? AND action = 'star'
-      )`;
-      params.push(query.userId);
+      itemsQuery = itemsQuery.where(({ exists, selectFrom }) =>
+        exists(
+          selectFrom('user_actions')
+            .where('itemId', '=', kysely.ref('i.id'))
+            .where('userId', '=', query.userId!)
+            .where('action', '=', 'star')
+            .select(kysely.fn.count('id').as('count'))
+        )
+      );
     }
 
     if (query.unread) {
-      where += ` AND NOT EXISTS (
-        SELECT 1 FROM user_actions
-        WHERE itemId = i.id AND userId = ? AND action = 'read'
-      )`;
-      params.push(query.userId);
+      itemsQuery = itemsQuery.where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('user_actions')
+              .where('itemId', '=', kysely.ref('i.id'))
+              .where('userId', '=', query.userId!)
+              .where('action', '=', 'read')
+              .select(kysely.fn.count('id').as('count'))
+          )
+        )
+      );
     }
 
     if (query.followup) {
-      where += ` AND EXISTS (
-        SELECT 1 FROM user_actions
-        WHERE itemId = i.id AND userId = ? AND action = 'followup'
-      )`;
-      params.push(query.userId);
+      itemsQuery = itemsQuery.where(({ exists, selectFrom }) =>
+        exists(
+          selectFrom('user_actions')
+            .where('itemId', '=', kysely.ref('i.id'))
+            .where('userId', '=', query.userId!)
+            .where('action', '=', 'followup')
+            .select(kysely.fn.count('id').as('count'))
+        )
+      );
     }
   }
 
-  // Count total
-  const countQuery = `SELECT COUNT(*) as total FROM items i JOIN sources s ON i.sourceId = s.id WHERE ${where}`;
-  const countResult = await db.prepare(countQuery).bind(...params).first<{ total: number }>();
-  const total = countResult?.total || 0;
+  // Get total count
+  const countResult = await kysely
+    .selectFrom(itemsQuery.as('filtered'))
+    .select(kysely.fn.count('id').as('count'))
+    .executeTakeFirst();
 
-  // Fetch items
+  const total = Number(countResult?.count || 0);
+
+  // Get paginated items
   const limit = query.limit || 50;
   const offset = query.offset || 0;
-  const itemsQuery = `
-    SELECT i.* FROM items i
-    JOIN sources s ON i.sourceId = s.id
-    WHERE ${where}
-    ORDER BY i.score DESC, i.createdAt DESC
-    LIMIT ? OFFSET ?
-  `;
 
-  const itemsResult = await db.prepare(itemsQuery).bind(...params, limit, offset).all();
-  const items = (itemsResult.results || []).map(deserializeItem);
+  const rows = await itemsQuery
+    .orderBy('i.createdAt', 'desc')
+    .limit(limit)
+    .offset(offset)
+    .execute();
+
+  const items = rows.map(deserializeItem);
 
   return { items, total };
 }
 
 /**
- * Fetches a single item by its deterministic ID (hash).
- * @param db The D1Database instance.
- * @param id The deterministic SHA-256 hash ID of the item.
- * @returns A promise that resolves to an Item object or null if not found.
+ * Fetches a single item by its deterministic ID (hash)
  */
 export async function getItemById(db: D1Database, id: string): Promise<Item | null> {
-  const result = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
-  return result ? deserializeItem(result) : null;
+  const kysely = getDb(db);
+
+  const row = await kysely
+    .selectFrom('items')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  return row ? deserializeItem(row) : null;
 }
 
 /**
- * Creates a new item or updates an existing one (upsert).
- * This is the primary function for saving curated content to the database.
- * It logs its outcome to the `audit_logs` table.
- * @param db The D1Database instance.
- * @param item The curated item data to save.
- * @returns A promise that resolves to the created/updated Item object.
+ * Creates a new item or updates an existing one (upsert)
  */
 export async function createItem(
   db: D1Database,
   item: Omit<Item, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Item> {
+  const kysely = getDb(db);
   const logger = createLogger(db, 'DBService');
   const now = new Date().toISOString();
   const id = await generateItemId(item.sourceId, item.url);
 
   try {
-    // Upsert (update if exists)
+    // Upsert using raw SQL since Kysely doesn't support ON CONFLICT directly
     await db
       .prepare(
         `INSERT INTO items
@@ -234,11 +269,11 @@ export async function createItem(
         item.title,
         item.url,
         item.summary,
-        item.tags ? JSON.stringify(item.tags) : null,
+        toJsonString(item.tags),
         item.reason,
         item.score,
         item.vectorId,
-        item.metadata ? JSON.stringify(item.metadata) : null,
+        toJsonString(item.metadata),
         now,
         now
       )
@@ -264,8 +299,28 @@ export async function createItem(
       sourceId: item.sourceId,
       detail: 'Failed during D1 upsert.',
     });
-    throw error; // Re-throw the error so the actor knows it failed
+    throw error;
   }
+}
+
+/**
+ * Deserialize item row from database
+ */
+function deserializeItem(row: any): Item {
+  return {
+    id: row.id,
+    sourceId: row.sourceId,
+    title: row.title,
+    url: row.url,
+    summary: row.summary || null,
+    tags: tryParseJson<string[]>(row.tags) || null,
+    reason: row.reason || null,
+    score: row.score || 0,
+    vectorId: row.vectorId || null,
+    metadata: tryParseJson<ItemMetadata>(row.metadata) || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 // ============================================================================
@@ -273,57 +328,35 @@ export async function createItem(
 // ============================================================================
 
 /**
- * Records a user action (e.g., star, read, followup) in the database.
- * Handles de-duplication for 'unstar'.
- * @param db The D1Database instance.
- * @param action The action to record.
+ * Records a user action (e.g., star, read, followup) in the database
  */
-export async function createUserAction(
+export async function recordUserAction(
   db: D1Database,
   action: Omit<UserAction, 'id' | 'createdAt'>
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const kysely = getDb(db);
 
-  // For star/unstar and followup, delete opposite action first
+  // Handle 'unstar' by deleting the star action
   if (action.action === 'unstar') {
-    await db
-      .prepare('DELETE FROM user_actions WHERE itemId = ? AND userId = ? AND action = ?')
-      .bind(action.itemId, action.userId, 'star')
-      .run();
+    await kysely
+      .deleteFrom('user_actions')
+      .where('itemId', '=', action.itemId)
+      .where('userId', '=', action.userId)
+      .where('action', '=', 'star')
+      .execute();
     return;
   }
 
-  // Insert action
-  await db
-    .prepare('INSERT INTO user_actions (itemId, userId, action, createdAt) VALUES (?, ?, ?, ?)')
-    .bind(action.itemId, action.userId, action.action, now)
-    .run();
-}
-
-/**
- * Fetches all actions for a specific user, optionally filtered by action type.
- * @param db The D1Database instance.
- * @param userId The ID of the user.
- * @param action (Optional) The type of action to filter by (e.g., 'star').
- * @returns A promise that resolves to an array of UserAction objects.
- */
-export async function getUserActions(
-  db: D1Database,
-  userId: string,
-  action?: string
-): Promise<UserAction[]> {
-  let query = 'SELECT * FROM user_actions WHERE userId = ?';
-  const params: unknown[] = [userId];
-
-  if (action) {
-    query += ' AND action = ?';
-    params.push(action);
-  }
-
-  query += ' ORDER BY createdAt DESC';
-
-  const result = await db.prepare(query).bind(...params).all();
-  return (result.results || []).map(deserializeUserAction);
+  // Insert new action
+  await kysely
+    .insertInto('user_actions')
+    .values({
+      itemId: action.itemId,
+      userId: action.userId,
+      action: action.action,
+      createdAt: new Date().toISOString(),
+    })
+    .execute();
 }
 
 // ============================================================================
@@ -331,43 +364,42 @@ export async function getUserActions(
 // ============================================================================
 
 /**
- * Fetches the preferences for a specific user.
- * @param db The D1Database instance.
- * @param userId The ID of the user.
- * @returns A promise that resolves to a UserPreferences object or null if not found.
+ * Fetches user preferences by userId
  */
 export async function getUserPreferences(
   db: D1Database,
   userId: string
 ): Promise<UserPreferences | null> {
-  const result = await db
-    .prepare('SELECT * FROM user_preferences WHERE userId = ?')
-    .bind(userId)
-    .first();
+  const kysely = getDb(db);
 
-  if (!result) return null;
+  const row = await kysely
+    .selectFrom('user_preferences')
+    .selectAll()
+    .where('userId', '=', userId)
+    .executeTakeFirst();
+
+  if (!row) return null;
 
   return {
-    userId: result.userId as string,
-    ...JSON.parse(result.preferences as string),
-    createdAt: result.createdAt as string,
-    updatedAt: result.updatedAt as string,
+    userId: row.userId,
+    preferences: tryParseJson(row.preferences) || {},
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
 /**
- * Creates or updates the preferences for a specific user (upsert).
- * @param db The D1Database instance.
- * @param userId The ID of the user.
- * @param preferences A partial UserPreferences object to save.
+ * Creates or updates user preferences
  */
-export async function setUserPreferences(
+export async function upsertUserPreferences(
   db: D1Database,
   userId: string,
-  preferences: Partial<UserPreferences>
+  preferences: Record<string, unknown>
 ): Promise<void> {
+  const kysely = getDb(db);
   const now = new Date().toISOString();
 
+  // Use raw SQL for upsert
   await db
     .prepare(
       `INSERT INTO user_preferences (userId, preferences, createdAt, updatedAt)
@@ -376,65 +408,6 @@ export async function setUserPreferences(
          preferences = excluded.preferences,
          updatedAt = excluded.updatedAt`
     )
-    .bind(userId, JSON.stringify(preferences), now, now)
+    .bind(userId, toJsonString(preferences), now, now)
     .run();
-}
-
-// ============================================================================
-// SERIALIZATION HELPERS
-// ============================================================================
-
-/**
- * Deserializes a raw D1 row into a strongly-typed Source object.
- * @param row The raw database row.
- * @returns A Source object.
- */
-function deserializeSource(row: any): Source {
-  return {
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    config: JSON.parse(row.config) as SourceConfig,
-    enabled: row.enabled === 1,
-    lastScan: row.lastScan,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-/**
- * Deserializes a raw D1 row into a strongly-typed Item object.
- * @param row The raw database row.
- * @returns An Item object.
- */
-function deserializeItem(row: any): Item {
-  return {
-    id: row.id,
-    sourceId: row.sourceId,
-    title: row.title,
-    url: row.url,
-    summary: row.summary,
-    tags: row.tags ? JSON.parse(row.tags) : null,
-    reason: row.reason,
-    score: row.score,
-    vectorId: row.vectorId,
-    metadata: row.metadata ? JSON.parse(row.metadata) : null,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-/**
- * Deserializes a raw D1 row into a strongly-typed UserAction object.
- * @param row The raw database row.
- * @returns A UserAction object.
- */
-function deserializeUserAction(row: any): UserAction {
-  return {
-    id: row.id,
-    itemId: row.itemId,
-    userId: row.userId,
-    action: row.action,
-    createdAt: row.createdAt,
-  };
 }

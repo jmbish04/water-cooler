@@ -60,10 +60,48 @@ export default {
     }
 
     // For all other requests, delegate to the Hono router.
-    // This handles the REST API and the generic RPC endpoint.
+    // This handles the REST API, /scheduler, static assets, and the generic RPC endpoint.
     const app = buildRouter();
     return app.fetch(request, env, ctx);
   },
+
+  // Scheduled handler (cron triggers)
+  //
+  // Runs workflows on schedule:
+  // - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
+  // - Cron "0 9 * * *" (9am daily) — dailyDigest
+  // - Cron "0 0 * * *" (midnight daily) — health checks
+  async scheduled(
+    event: ScheduledEvent,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    const cron = event.cron;
+
+    // Every 6 hours — trigger scan workflow
+    if (cron === '0 */6 * * *') {
+      const schedulerId = env.SCHEDULER_ACTOR.idFromName('scheduler');
+      const schedulerStub = env.SCHEDULER_ACTOR.get(schedulerId);
+
+      ctx.waitUntil(
+        schedulerStub.fetch('http://scheduler/trigger', {
+          method: 'POST',
+        })
+      );
+    }
+
+    // 9am daily — trigger digest workflow
+    if (cron === '0 9 * * *') {
+      const { dailyDigestWorkflow } = await import('./workflows/dailyDigest');
+      ctx.waitUntil(dailyDigestWorkflow(env));
+    }
+
+    // Midnight daily — run health checks on all connectors
+    if (cron === '0 0 * * *') {
+      const { runDailyHealthChecks } = await import('./workflows/healthCheck');
+      ctx.waitUntil(runDailyHealthChecks(env));
+    }
+  }
 };
 
 // Export the Durable Object class for wrangler.
