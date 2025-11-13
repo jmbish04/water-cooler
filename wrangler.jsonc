@@ -1,7 +1,5 @@
-/**
- * Wrangler Configuration for AI-Curated Discovery Hub
- */
 {
+ "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "water-cooler",
   "main": "src/index.ts",
   "compatibility_date": "2025-03-07",
@@ -10,8 +8,14 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+"observability": {
+  "enabled": true,
+  "head_sampling_rate": 1
+  },    
   "vars": {
     "AI_MODEL": "@cf/openai/gpt-oss-120b",
+    "EMBED_MODEL": "@cf/baai/bge-large-en-v1.5",
+    "FAST_MODEL": "@cf/meta/llama-3.1-70b-instruct",
     "ENVIRONMENT": "production"
   },
   "assets": {
@@ -59,7 +63,7 @@
   "vectorize": [
     {
       "binding": "VEC",
-      "index_name": "curation_vectors_v2"
+      "index_name": "water-cooler"
     }
   ],
   "durable_objects": {
@@ -70,7 +74,8 @@
       { "name": "REDDIT_ACTOR", "class_name": "RedditActor" },
       { "name": "DISCORD_ACTOR", "class_name": "DiscordActor" },
       { "name": "CURATOR_ACTOR", "class_name": "CuratorActor" },
-      { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" }
+      { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" },
+      { "name": "ROOM_DO", "class_name": "RoomDO" }
     ]
   },
   "migrations": [
@@ -83,7 +88,8 @@
         "RedditActor",
         "DiscordActor",
         "CuratorActor",
-        "UserSessionActor"
+        "UserSessionActor",
+        "RoomDO"
       ]
     }
   ],

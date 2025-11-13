@@ -1,8 +1,7 @@
 {
-  "name": "curation-hub",
+  "name": "multi-protocol-worker",
   "version": "1.0.0",
-  "description": "AI-Curated Discovery Hub — Modular Cloudflare Worker with Actors, Vectorize, and Mantine UI",
-  "type": "module",
+  "private": true,
   "scripts": {
     "dev": "wrangler dev",
     "dev:ui": "vite --config ui/vite.config.ts",
