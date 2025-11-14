@@ -69,6 +69,7 @@
       { "name": "APPSTORE_ACTOR", "class_name": "AppStoreActor" },
       { "name": "REDDIT_ACTOR", "class_name": "RedditActor" },
       { "name": "DISCORD_ACTOR", "class_name": "DiscordActor" },
+      { "name": "IGDUX_ACTOR", "class_name": "IgduxActor" },
       { "name": "CURATOR_ACTOR", "class_name": "CuratorActor" },
       { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" }
     ]
@@ -85,6 +86,10 @@
         "CuratorActor",
         "UserSessionActor"
       ]
+    },
+    {
+      "tag": "v2",
+      "new_classes": ["IgduxActor"]
     }
   ],
   "send_email": [

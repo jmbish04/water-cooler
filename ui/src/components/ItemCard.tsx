@@ -46,6 +46,9 @@ function generateQuestions(item: Item): string[] {
   } else if (item.metadata?.source === 'discord') {
     questions.push(`What's the context here?`);
     questions.push(`What's the key takeaway?`);
+  } else if (item.metadata?.source === 'igdux') {
+    questions.push(`How could I use this Worker in my project?`);
+    questions.push(`What makes this implementation interesting?`);
   }
 
   // Generic questions if we don't have enough
@@ -88,6 +91,7 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
     appstore: 'grape',
     reddit: 'orange',
     discord: 'indigo',
+    igdux: 'cyan',
   };
 
   const sourceColor = sourceColors[item.metadata?.source || 'github'] || 'gray';

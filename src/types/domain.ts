@@ -16,7 +16,7 @@
 /**
  * Source Types
  */
-export type SourceType = 'github' | 'appstore' | 'reddit' | 'discord';
+export type SourceType = 'github' | 'appstore' | 'reddit' | 'discord' | 'igdux';
 
 export interface Source {
   id: number;
@@ -33,7 +33,13 @@ export type SourceConfig =
   | GitHubConfig
   | AppStoreConfig
   | RedditConfig
-  | DiscordConfig;
+  | DiscordConfig
+  | IgduxConfig;
+
+export interface IgduxConfig {
+  // No configuration needed - uses fixed feed URL
+  enabled?: boolean;
+}
 
 export interface GitHubConfig {
   org?: string;
@@ -103,10 +109,14 @@ export interface ItemMetadata {
 
   // Discord-specific
   reactions?: Record<string, number>;
-  author?: string;
   channelName?: string;
 
+  // Igdux-specific
+  originalTitle?: string; // Original Chinese title before translation
+  tags?: string[];
+
   // Common
+  author?: string;
   imageUrl?: string;
   publishedAt?: string;
 }
