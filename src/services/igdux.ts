@@ -72,7 +72,7 @@ export async function fetchIgduxFeed(
   // Check cache first
   const cached = await cache.get(cacheKey, 'json');
   if (cached) {
-    return cached as any;
+    return cached as Awaited<ReturnType<typeof fetchIgduxFeed>>;
   }
 
   try {
