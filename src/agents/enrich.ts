@@ -96,7 +96,7 @@ export default agent<Env, EnrichmentInput>(async (context) => {
       )
       .bind(
         parsed.summary,
-        parsed.score,
+        parsed.score / 100,
         JSON.stringify(parsed.questions),
         entryId
       )
