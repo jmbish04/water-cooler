@@ -12,6 +12,11 @@
   animation: marquee 60s linear infinite;
 }
 
+.marquee-content.single {
+  animation: none;
+  justify-content: center;
+}
+
 .marquee-content:hover {
   animation-play-state: paused;
 }

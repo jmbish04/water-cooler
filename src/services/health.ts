@@ -46,6 +46,8 @@ export async function checkSourceHealth(
         return await checkDiscordHealth(source, env.DISCORD_BOT_TOKEN, start);
       case 'appstore':
         return await checkAppStoreHealth(source, start);
+      case 'igdux':
+        return await checkIgduxHealth(source, start);
       default:
         throw new Error(`Unknown source type: ${source.type}`);
     }
@@ -159,6 +161,32 @@ async function checkRedditHealth(
   const responseTime = Date.now() - start;
 
   if (!response.ok) {
+    if (response.status === 403 || response.status === 401) {
+      return {
+        sourceId: source.id,
+        sourceName: source.name,
+        sourceType: source.type,
+        status: 'degraded',
+        responseTime,
+        errorMessage: `Reddit returned ${response.status} (auth required)`,
+        errorStack: null,
+        metadata: { statusCode: response.status },
+      };
+    }
+
+    if (response.status === 429) {
+      return {
+        sourceId: source.id,
+        sourceName: source.name,
+        sourceType: source.type,
+        status: 'degraded',
+        responseTime,
+        errorMessage: 'Reddit rate limit reached (HTTP 429)',
+        errorStack: null,
+        metadata: { statusCode: response.status },
+      };
+    }
+
     return {
       sourceId: source.id,
       sourceName: source.name,
@@ -247,8 +275,71 @@ async function checkAppStoreHealth(
 ): Promise<HealthCheckResult> {
   // Test iTunes Search API with a simple query
   const response = await fetch(
-    'https://itunes.apple.com/search?term=test&limit=1&entity=software'
+    'https://itunes.apple.com/search?term=productivity&limit=1&entity=software&country=us',
+    {
+      headers: {
+        'User-Agent': 'Cloudflare-Curation-Hub/1.0',
+        Accept: 'application/json',
+      },
+    }
   );
+
+  const responseTime = Date.now() - start;
+
+  if (!response.ok) {
+    const baseResult = {
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceType: source.type,
+      responseTime,
+      errorStack: null,
+      metadata: { statusCode: response.status },
+    } as const;
+
+    if (response.status === 403) {
+      return {
+        ...baseResult,
+        status: 'degraded',
+        errorMessage: 'App Store denied the health probe (HTTP 403)',
+      };
+    }
+
+    return {
+      ...baseResult,
+      status: 'failed',
+      errorMessage: `App Store API returned ${response.status}`,
+    };
+  }
+
+  const data = await response.json<{ resultCount: number }>();
+
+  return {
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceType: source.type,
+    status: 'healthy',
+    responseTime,
+    errorMessage: null,
+    errorStack: null,
+    metadata: {
+      resultCount: data?.resultCount ?? null,
+    },
+  };
+}
+
+/**
+ * Check Igdux feed health
+ */
+async function checkIgduxHealth(
+  source: Source,
+  start: number
+): Promise<HealthCheckResult> {
+  const response = await fetch('https://www.igdux.com/feed?format=json', {
+    headers: {
+      'User-Agent': 'Cloudflare-Curation-Hub/1.0',
+      Accept: 'application/json',
+    },
+  });
 
   const responseTime = Date.now() - start;
 
@@ -259,11 +350,17 @@ async function checkAppStoreHealth(
       sourceType: source.type,
       status: 'failed',
       responseTime,
-      errorMessage: `App Store API returned ${response.status}`,
+      errorMessage: `Igdux feed returned ${response.status}`,
       errorStack: null,
       metadata: { statusCode: response.status },
     };
   }
+
+  const feed = await response.json<{
+    items?: unknown[];
+  }>();
+
+  const itemCount = Array.isArray(feed.items) ? feed.items.length : null;
 
   return {
     sourceId: source.id,
@@ -273,7 +370,9 @@ async function checkAppStoreHealth(
     responseTime,
     errorMessage: null,
     errorStack: null,
-    metadata: null,
+    metadata: {
+      itemCount,
+    },
   };
 }
 

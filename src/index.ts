@@ -129,6 +129,9 @@ async function queue(
         sourceId: number;
         source: string;
         config: any;
+        force?: boolean;
+        startDate?: string;
+        endDate?: string;
       };
 
       if (payload.type === 'scan') {
@@ -165,6 +168,9 @@ async function queue(
           body: JSON.stringify({
             sourceId: payload.sourceId,
             config: payload.config,
+            force: payload.force,
+            startDate: payload.startDate,
+            endDate: payload.endDate,
           }),
         });
       }

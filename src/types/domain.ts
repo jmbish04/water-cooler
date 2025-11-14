@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * Domain Types for AI-Curated Discovery Hub
  *
@@ -156,16 +158,32 @@ export interface AuditLog {
 /**
  * User Preferences
  */
-export interface UserPreferences {
+export const UserPreferenceUpdateSchema = z
+  .object({
+    digestFrequency: z.enum(['daily', 'weekly', 'never']).optional(),
+    enabledSources: z.array(z.number().int().nonnegative()).optional(),
+    minScore: z.number().int().min(0).max(100).optional(),
+    excludeTags: z.array(z.string()).optional(),
+    includeTags: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export type UserPreferenceUpdate = z.infer<typeof UserPreferenceUpdateSchema>;
+
+export interface UserPreferences extends UserPreferenceUpdate {
   userId: string;
-  digestFrequency?: 'daily' | 'weekly' | 'never';
-  enabledSources?: number[]; // source IDs
-  minScore?: number;
-  excludeTags?: string[];
-  includeTags?: string[];
   createdAt: string;
   updatedAt: string;
 }
+
+export const UserActionPayloadSchema = z
+  .object({
+    itemId: z.string(),
+    action: z.enum(['read', 'star', 'followup', 'unstar']),
+  })
+  .strict();
+
+export type UserActionPayload = z.infer<typeof UserActionPayloadSchema>;
 
 /**
  * Digest History

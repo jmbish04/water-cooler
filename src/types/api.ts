@@ -18,7 +18,7 @@ import { z } from 'zod';
 /**
  * Common Schemas
  */
-export const SourceTypeSchema = z.enum(['github', 'appstore', 'reddit', 'discord']);
+export const SourceTypeSchema = z.enum(['github', 'appstore', 'reddit', 'discord', 'igdux']);
 export type SourceTypeAPI = z.infer<typeof SourceTypeSchema>;
 
 export const ActionTypeSchema = z.enum(['read', 'star', 'followup', 'unstar']);
@@ -184,8 +184,15 @@ export type UpdateConfigBody = z.infer<typeof UpdateConfigBodySchema>;
 export const TriggerScanBodySchema = z.object({
   sourceId: z.number().optional(),
   force: z.boolean().default(false),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
 });
 export type TriggerScanBody = z.infer<typeof TriggerScanBodySchema>;
+
+export const ReprocessBodySchema = TriggerScanBodySchema.extend({
+  force: z.literal(true).default(true),
+});
+export type ReprocessBody = z.infer<typeof ReprocessBodySchema>;
 
 /**
  * Response Schemas

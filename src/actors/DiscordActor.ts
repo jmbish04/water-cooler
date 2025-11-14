@@ -37,9 +37,12 @@ export class DiscordActor implements DurableObject {
     const start = Date.now();
 
     try {
-      const { sourceId, config } = await request.json<{
+      const { sourceId, config, force, startDate, endDate } = await request.json<{
         sourceId: number;
         config: DiscordConfig;
+        force?: boolean;
+        startDate?: string;
+        endDate?: string;
       }>();
 
       const messages = await fetchDiscordMessages(
@@ -49,9 +52,27 @@ export class DiscordActor implements DurableObject {
       );
       const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
+      const startBoundary = startDate ? new Date(startDate) : undefined;
+      const endBoundary = endDate ? new Date(endDate) : undefined;
+      const endInclusive = endBoundary ? new Date(endBoundary.getTime() + 24 * 60 * 60 * 1000) : undefined;
+
+      const inRange = (publishedAt?: string | null) => {
+        if (!startBoundary && !endBoundary) return true;
+        if (!publishedAt) return true;
+        const publishedDate = new Date(publishedAt);
+        if (Number.isNaN(publishedDate.getTime())) return true;
+        if (startBoundary && publishedDate < startBoundary) return false;
+        if (endInclusive && publishedDate >= endInclusive) return false;
+        return true;
+      };
+
       let newCount = 0;
       for (const msg of messages) {
-        if (!processed.has(msg.url)) {
+        if (!inRange(msg.metadata?.publishedAt)) {
+          continue;
+        }
+
+        if (force || !processed.has(msg.url)) {
           const itemId = await generateItemId(sourceId, msg.url);
           const curatorId = this.env.CURATOR_ACTOR.idFromName(itemId);
           const curatorStub = this.env.CURATOR_ACTOR.get(curatorId);
