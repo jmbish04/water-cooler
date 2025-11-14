@@ -52,7 +52,7 @@ interface AIEnrichmentResponse {
  */
 export default agent<Env, EnrichmentInput>(async (context) => {
   const { entryId, title, url, content, source } = context.inputs;
-  const ai = new Ai(context.env.AI);
+  const ai = context.env.AI;
   const db = context.env.DB;
 
   console.log(`[EnrichAgent] Processing entry: ${entryId}`);
