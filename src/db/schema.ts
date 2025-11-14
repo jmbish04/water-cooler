@@ -46,9 +46,10 @@ export const items = sqliteTable(
     title: text('title').notNull(),
     url: text('url').notNull().unique(),
     summary: text('summary'),
-    tags: text('tags'), // JSON array
+    tags: text('tags'), // JSON array (legacy - use entry_badges for normalized tags)
     reason: text('reason'),
-    score: real('score').default(0.0),
+    score: real('score').default(0.0), // 0-100 range (stored as REAL for SQLite compatibility)
+    aiQuestions: text('ai_questions'), // JSON array of AI-generated follow-up questions
     vectorId: text('vectorId'),
     metadata: text('metadata'), // JSON object
     createdAt: text('createdAt')
@@ -249,5 +250,50 @@ export const aiLogs = sqliteTable(
   },
   (table) => ({
     resultIdx: index('idx_ai_logs_result_id').on(table.testResultId),
+  })
+);
+
+// ============================================================================
+// BADGES: Normalized tags/categories for items
+// ============================================================================
+export const badges = sqliteTable(
+  'badges',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull().unique(),
+    description: text('description'),
+    color: text('color'), // hex color for UI
+    createdAt: text('createdAt')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updatedAt')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => ({
+    nameIdx: index('idx_badges_name').on(table.name),
+  })
+);
+
+// ============================================================================
+// ENTRY_BADGES: Many-to-many relationship between items and badges
+// ============================================================================
+export const entryBadges = sqliteTable(
+  'entry_badges',
+  {
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    badgeId: integer('badge_id')
+      .notNull()
+      .references(() => badges.id, { onDelete: 'cascade' }),
+    createdAt: text('createdAt')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => ({
+    pk: index('pk_entry_badges').on(table.entryId, table.badgeId),
+    entryIdx: index('idx_entry_badges_entry').on(table.entryId),
+    badgeIdx: index('idx_entry_badges_badge').on(table.badgeId),
   })
 );

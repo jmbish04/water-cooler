@@ -16,6 +16,7 @@ export interface Item {
   tags: string[] | null;
   reason: string | null;
   score: number;
+  aiQuestions: string[] | null;
   metadata: any;
   createdAt: string;
   updatedAt: string;

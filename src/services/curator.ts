@@ -236,11 +236,21 @@ async function generateEmbedding(ai: Ai, text: string): Promise<number[]> {
 function buildCurationPrompt(request: CurationRequest): { instructions: string; prompt: string } {
   const instructions = `You are an expert content curator. Analyze the following content and respond in this exact JSON format:
 {
-  "summary": "A concise summary (2-3 sentences)",
+  "summary": "A concise 1-2 sentence summary",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "reason": "Why this is interesting/valuable (1 sentence)",
-  "score": 0.85 //[quality score from 0.0 to 1.0 (1.0 = exceptional, 0.5 = good, 0.0 = poor)]
-}`;
+  "score": 75,
+  "questions": [
+    "Insightful follow-up question 1?",
+    "Insightful follow-up question 2?",
+    "Insightful follow-up question 3?"
+  ]
+}
+
+IMPORTANT:
+- score: Quality score from 0 to 100 (100 = exceptional, 50 = good, 0 = poor)
+- questions: Exactly 3 insightful follow-up questions users might ask
+- tags: Up to 5 short, relevant topic tags`;
 
   const prompt = `Analyze this ${request.source} content:
     Title: ${request.title}
@@ -280,11 +290,21 @@ function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'>
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
+
+      // Parse score - convert from 0-100 to 0.0-1.0 for backwards compatibility
+      let score = parseFloat(parsed.score) || 50;
+      // If score is in 0-100 range, normalize to 0.0-1.0
+      if (score > 1) {
+        score = score / 100;
+      }
+      score = Math.max(0, Math.min(1, score));
+
       return {
         summary: parsed.summary || 'No summary available',
         tags: Array.isArray(parsed.tags) ? parsed.tags : [],
         reason: parsed.reason || 'Interesting content',
-        score: Math.max(0, Math.min(1, parseFloat(parsed.score) || 0.5)),
+        score,
+        questions: Array.isArray(parsed.questions) ? parsed.questions.slice(0, 3) : [],
       };
     }
 
@@ -297,6 +317,7 @@ function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'>
       tags: [],
       reason: 'Content requires review',
       score: 0.3,
+      questions: [],
     };
   }
 }

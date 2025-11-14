@@ -35,6 +35,7 @@ export { GitHubActor } from './actors/GitHubActor';
 export { AppStoreActor } from './actors/AppStoreActor';
 export { RedditActor } from './actors/RedditActor';
 export { DiscordActor } from './actors/DiscordActor';
+export { IgduxActor } from './actors/IgduxActor';
 export { UserSessionActor } from './actors/UserSessionActor';
 
 /**
@@ -145,6 +146,9 @@ async function queue(
             break;
           case 'discord':
             actorBinding = env.DISCORD_ACTOR;
+            break;
+          case 'igdux':
+            actorBinding = env.IGDUX_ACTOR;
             break;
           default:
             console.error(`Unknown source type: ${payload.source}`);

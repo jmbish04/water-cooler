@@ -251,14 +251,15 @@ export async function createItem(
     await db
       .prepare(
         `INSERT INTO items
-         (id, sourceId, title, url, summary, tags, reason, score, vectorId, metadata, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (id, sourceId, title, url, summary, tags, reason, score, ai_questions, vectorId, metadata, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            summary = excluded.summary,
            tags = excluded.tags,
            reason = excluded.reason,
            score = excluded.score,
+           ai_questions = excluded.ai_questions,
            vectorId = excluded.vectorId,
            metadata = excluded.metadata,
            updatedAt = excluded.updatedAt`
@@ -272,6 +273,7 @@ export async function createItem(
         toJsonString(item.tags),
         item.reason,
         item.score,
+        toJsonString(item.aiQuestions),
         item.vectorId,
         toJsonString(item.metadata),
         now,
@@ -316,6 +318,7 @@ function deserializeItem(row: any): Item {
     tags: tryParseJson<string[]>(row.tags) || null,
     reason: row.reason || null,
     score: row.score || 0,
+    aiQuestions: tryParseJson<string[]>(row.ai_questions) || null,
     vectorId: row.vectorId || null,
     metadata: tryParseJson<ItemMetadata>(row.metadata) || null,
     createdAt: row.createdAt,
