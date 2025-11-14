@@ -62,7 +62,12 @@ function generateQuestions(item: Item): string[] {
 }
 
 export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, followup }: ItemCardProps) {
-  const [questions] = useState(() => generateQuestions(item));
+  // Prefer AI-generated questions over generated ones
+  const [questions] = useState(() =>
+    item.aiQuestions && item.aiQuestions.length > 0
+      ? item.aiQuestions
+      : generateQuestions(item)
+  );
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [fadeState, setFadeState] = useState<'in' | 'out'>('in');
   // Rotate questions every 3 seconds

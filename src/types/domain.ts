@@ -76,6 +76,7 @@ export interface Item {
   tags: string[] | null;
   reason: string | null;
   score: number;
+  aiQuestions: string[] | null; // AI-generated follow-up questions
   vectorId: string | null;
   metadata: ItemMetadata | null;
   createdAt: string;
@@ -188,7 +189,8 @@ export interface CurationResult {
   summary: string;
   tags: string[];
   reason: string;
-  score: number; // 0.0 - 1.0
+  score: number; // 0.0 - 1.0 (converted from 0-100 AI response)
+  questions?: string[]; // AI-generated follow-up questions
   embedding?: number[]; // vector for Vectorize
 }
 
