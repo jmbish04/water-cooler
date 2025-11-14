@@ -21,7 +21,7 @@
  * 6. Update item with AI metadata
  */
 
-import { agent } from '@cloudflare/agents';
+import { agent } from 'agents';
 import type { Env } from '../types/env';
 
 /**
