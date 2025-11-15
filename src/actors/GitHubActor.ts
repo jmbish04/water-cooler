@@ -55,9 +55,12 @@ export class GitHubActor implements DurableObject {
     const start = Date.now();
 
     try {
-      const { sourceId, config } = await request.json<{
+      const { sourceId, config, force, startDate, endDate } = await request.json<{
         sourceId: number;
         config: GitHubConfig;
+        force?: boolean;
+        startDate?: string;
+        endDate?: string;
       }>();
 
       // Step 2 - Fetch repos
@@ -66,10 +69,28 @@ export class GitHubActor implements DurableObject {
       // Step 3 - Get processed URLs
       const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
+      const startBoundary = startDate ? new Date(startDate) : undefined;
+      const endBoundary = endDate ? new Date(endDate) : undefined;
+      const endInclusive = endBoundary ? new Date(endBoundary.getTime() + 24 * 60 * 60 * 1000) : undefined;
+
+      const inRange = (publishedAt?: string | null) => {
+        if (!startBoundary && !endBoundary) return true;
+        if (!publishedAt) return true;
+        const publishedDate = new Date(publishedAt);
+        if (Number.isNaN(publishedDate.getTime())) return true;
+        if (startBoundary && publishedDate < startBoundary) return false;
+        if (endInclusive && publishedDate >= endInclusive) return false;
+        return true;
+      };
+
       // Step 4 - Enqueue new repos
       let newCount = 0;
       for (const repo of repos) {
-        if (!processed.has(repo.url)) {
+        if (!inRange(repo.metadata?.publishedAt)) {
+          continue;
+        }
+
+        if (force || !processed.has(repo.url)) {
           const itemId = await generateItemId(sourceId, repo.url);
 
           // Trigger curator

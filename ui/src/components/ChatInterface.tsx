@@ -117,26 +117,26 @@ export default function ChatInterface({ item, onClose, initialQuestion }: ChatIn
   const chatContent = (
     <Stack gap="md" style={{ height: '100%' }}>
       {/* Header */}
-      <Group justify="space-between">
-        <Group gap="xs">
+      <Stack gap="xs">
+        <Group justify="space-between" align="center">
           <IconSparkles size={20} color="blue" />
-          <Text fw={600} size="sm" lineClamp={1}>
-            {item.title}
-          </Text>
+          <Group gap="xs">
+            <ActionIcon
+              variant="subtle"
+              onClick={() => setExpanded(!expanded)}
+              title={expanded ? 'Minimize' : 'Maximize'}
+            >
+              {expanded ? <IconMinimize size={18} /> : <IconMaximize size={18} />}
+            </ActionIcon>
+            <ActionIcon variant="subtle" onClick={onClose} title="Close">
+              <IconX size={18} />
+            </ActionIcon>
+          </Group>
         </Group>
-        <Group gap="xs">
-          <ActionIcon
-            variant="subtle"
-            onClick={() => setExpanded(!expanded)}
-            title={expanded ? 'Minimize' : 'Maximize'}
-          >
-            {expanded ? <IconMinimize size={18} /> : <IconMaximize size={18} />}
-          </ActionIcon>
-          <ActionIcon variant="subtle" onClick={onClose} title="Close">
-            <IconX size={18} />
-          </ActionIcon>
-        </Group>
-      </Group>
+        <Text fw={600} size="sm" lineClamp={2}>
+          {item.title}
+        </Text>
+      </Stack>
 
       {/* Messages */}
       <ScrollArea

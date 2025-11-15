@@ -7,7 +7,7 @@
  * - Clickable to navigate to the source item
  */
 
-import { Badge, Group } from '@mantine/core';
+import { Badge, Group, Text } from '@mantine/core';
 import { Item } from '../lib/api';
 import { useEffect, useState } from 'react';
 import './MarqueeBadges.css';
@@ -18,46 +18,80 @@ interface MarqueeBadgesProps {
 }
 
 export default function MarqueeBadges({ items, onBadgeClick }: MarqueeBadgesProps) {
-  const [quotes, setQuotes] = useState<Array<{ item: Item; quote: string }>>([]);
+  const [badges, setBadges] = useState<Array<{ item: Item; label: string }>>([]);
 
   useEffect(() => {
-    // Extract interesting quotes from items
-    const extractedQuotes = items.map((item) => ({
-      item,
-      quote: extractQuote(item),
-    }));
-    setQuotes(extractedQuotes);
+    const uniqueBadges: Array<{ item: Item; label: string }> = [];
+    const seen = new Set<string>();
+
+    // Prefer curated tags
+    items.forEach((item) => {
+      if (item.tags && item.tags.length > 0) {
+        item.tags.forEach((tag) => {
+          const normalized = tag.trim();
+          if (!normalized) return;
+          const key = normalized.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          uniqueBadges.push({ item, label: normalized });
+        });
+      }
+    });
+
+    // Fallback to short quotes when tags are sparse
+    if (uniqueBadges.length === 0) {
+      items.forEach((item) => {
+        const quote = extractQuote(item);
+        const key = quote.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueBadges.push({ item, label: quote });
+        }
+      });
+    }
+
+    setBadges(uniqueBadges);
   }, [items]);
 
-  if (quotes.length === 0) return null;
+  if (badges.length === 0) {
+    return (
+      <div className="marquee-container">
+        <div className="marquee-content single">
+          <Text size="sm" c="dimmed">
+            No tags available yet.
+          </Text>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="marquee-container">
       <div className="marquee-content">
         <Group gap="md" wrap="nowrap">
-          {quotes.map((quote, index) => (
+          {badges.map((badge, index) => (
             <Badge
-              key={`${quote.item.id}-${index}`}
+              key={`${badge.item.id}-${index}`}
               size="lg"
               variant="gradient"
               gradient={{ from: 'blue', to: 'cyan', deg: 45 }}
               style={{ cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
-              onClick={() => onBadgeClick(quote.item)}
+              onClick={() => onBadgeClick(badge.item)}
             >
-              "{quote.quote}"
+              {badge.label}
             </Badge>
           ))}
           {/* Duplicate for seamless loop */}
-          {quotes.map((quote, index) => (
+          {badges.map((badge, index) => (
             <Badge
-              key={`${quote.item.id}-dup-${index}`}
+              key={`${badge.item.id}-dup-${index}`}
               size="lg"
               variant="gradient"
               gradient={{ from: 'blue', to: 'cyan', deg: 45 }}
               style={{ cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
-              onClick={() => onBadgeClick(quote.item)}
+              onClick={() => onBadgeClick(badge.item)}
             >
-              "{quote.quote}"
+              {badge.label}
             </Badge>
           ))}
         </Group>

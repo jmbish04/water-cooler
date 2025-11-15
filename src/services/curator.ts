@@ -264,22 +264,101 @@ IMPORTANT:
 /**
  * Parse AI curation response
  */
+function extractTextFromResponse(response: any): string {
+  if (!response) return '';
+
+  if (typeof response === 'string') {
+    return response;
+  }
+
+  if (typeof response !== 'object') {
+    return '';
+  }
+
+  const directFields = ['response', 'text', 'content', 'output_text', 'answer'];
+  for (const field of directFields) {
+    const value = (response as any)[field];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+
+  // Handle Workers AI `output` structure
+  if (Array.isArray((response as any).output)) {
+    const pieces: string[] = [];
+    for (const entry of (response as any).output) {
+      if (!entry) continue;
+      if (typeof entry === 'string') {
+        pieces.push(entry);
+        continue;
+      }
+
+      if (typeof entry.text === 'string') {
+        pieces.push(entry.text);
+      }
+
+      if (entry.content) {
+        if (typeof entry.content === 'string') {
+          pieces.push(entry.content);
+        } else if (Array.isArray(entry.content)) {
+          for (const inner of entry.content) {
+            if (!inner) continue;
+            if (typeof inner === 'string') {
+              pieces.push(inner);
+            } else if (typeof inner.text === 'string') {
+              pieces.push(inner.text);
+            }
+          }
+        }
+      }
+    }
+
+    const merged = pieces.join('\n').trim();
+    if (merged) {
+      return merged;
+    }
+  }
+
+  if ((response as any).result) {
+    const nested = extractTextFromResponse((response as any).result);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  if (Array.isArray((response as any).content)) {
+    const pieces: string[] = [];
+    for (const part of (response as any).content) {
+      if (!part) continue;
+      if (typeof part === 'string') {
+        pieces.push(part);
+      } else if (typeof part.text === 'string') {
+        pieces.push(part.text);
+      }
+    }
+    const merged = pieces.join('\n').trim();
+    if (merged) {
+      return merged;
+    }
+  }
+
+  if (Array.isArray((response as any).choices)) {
+    for (const choice of (response as any).choices) {
+      const content = choice?.message?.content;
+      if (typeof content === 'string' && content.trim()) {
+        return content;
+      }
+    }
+  }
+
+  return '';
+}
+
 function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'> {
   try {
     // Extract text from response object
     // gpt-oss-120b returns { response: "text content" }
-    let text = '';
-    if (typeof response === 'string') {
-      text = response;
-    } else if (response && typeof response === 'object') {
-      // Try common response field names
-      text = response.response || response.text || response.content || response.output || '';
-
-      // If no text found, try to stringify
-      if (!text && response.choices && response.choices[0]?.message?.content) {
-        text = response.choices[0].message.content;
-      }
-    }
+    const text = extractTextFromResponse(response);
 
     if (!text) {
       console.error('[PARSE_ERROR] No text content in response:', JSON.stringify(response));
@@ -370,6 +449,50 @@ function parseQAResponse(response: any): string {
 
     if (text && typeof text === 'string') {
       return text.trim();
+    }
+
+    // Handle Workers AI result wrappers
+    if (response.result) {
+      const { result } = response;
+      if (typeof result === 'string') {
+        return result.trim();
+      }
+      if (Array.isArray(result) && result.length > 0) {
+        const first = result[0];
+        if (typeof first === 'string') return first.trim();
+        if (first && typeof first === 'object') {
+          const candidate = first.text || first.content || first.output_text;
+          if (candidate && typeof candidate === 'string') return candidate.trim();
+        }
+      }
+      if (typeof result === 'object') {
+        const candidate =
+          (result as any).output_text ||
+          (result as any).text ||
+          (result as any).content;
+        if (candidate && typeof candidate === 'string') {
+          return candidate.trim();
+        }
+      }
+    }
+
+    // Handle array-based outputs (e.g., openai-compatible array response)
+    if (Array.isArray(response)) {
+      const first = response[0];
+      if (typeof first === 'string') return first.trim();
+      if (first && typeof first === 'object') {
+        const candidate = first.text || first.content || first.output_text;
+        if (candidate && typeof candidate === 'string') return candidate.trim();
+      }
+    }
+
+    if (response.outputs && Array.isArray(response.outputs) && response.outputs.length > 0) {
+      const first = response.outputs[0];
+      if (typeof first === 'string') return first.trim();
+      if (first && typeof first === 'object') {
+        const candidate = first.text || first.content || first.output_text;
+        if (candidate && typeof candidate === 'string') return candidate.trim();
+      }
     }
 
     // Try OpenAI-style response

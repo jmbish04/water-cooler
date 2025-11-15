@@ -20,8 +20,13 @@
  */
 
 import { Env } from '../types/env';
-import { ActionType, UserPreferences } from '../types/domain';
-import { createUserAction, getUserPreferences, setUserPreferences } from '../services/db';
+import { UserPreferenceUpdateSchema, UserActionPayloadSchema } from '../types/domain';
+import { ZodError } from 'zod';
+import {
+  getUserPreferences,
+  recordUserAction,
+  upsertUserPreferences,
+} from '../services/db';
 import { createLogger } from '../utils/logger';
 
 export class UserSessionActor implements DurableObject {
@@ -60,13 +65,11 @@ export class UserSessionActor implements DurableObject {
     const logger = createLogger(this.env.DB, 'UserSessionActor');
 
     try {
-      const { itemId, action } = await request.json<{
-        itemId: string;
-        action: ActionType;
-      }>();
+      const payload = await request.json<unknown>();
+      const { itemId, action } = UserActionPayloadSchema.parse(payload);
 
       // Write to D1
-      await createUserAction(this.env.DB, {
+      await recordUserAction(this.env.DB, {
         itemId,
         userId: this.userId,
         action,
@@ -88,6 +91,10 @@ export class UserSessionActor implements DurableObject {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
+      if (error instanceof ZodError) {
+        return this.handleZodError(logger, 'INVALID_SESSION_ACTION', 'Invalid action payload', error);
+      }
+
       await logger.error('USER_ACTION_FAILED', error, {
         userId: this.userId,
       });
@@ -118,9 +125,10 @@ export class UserSessionActor implements DurableObject {
     const logger = createLogger(this.env.DB, 'UserSessionActor');
 
     try {
-      const prefs = await request.json<Partial<UserPreferences>>();
+      const payload = await request.json<unknown>();
+      const prefs = UserPreferenceUpdateSchema.parse(payload);
 
-      await setUserPreferences(this.env.DB, this.userId, prefs);
+      await upsertUserPreferences(this.env.DB, this.userId, prefs);
 
       await logger.info('PREFERENCES_UPDATED', {
         userId: this.userId,
@@ -130,11 +138,44 @@ export class UserSessionActor implements DurableObject {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
+      if (error instanceof ZodError) {
+        return this.handleZodError(
+          logger,
+          'INVALID_PREFERENCES_PAYLOAD',
+          'Invalid preferences payload',
+          error
+        );
+      }
+
       await logger.error('PREFERENCES_UPDATE_FAILED', error, {
         userId: this.userId,
       });
 
       return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
     }
+  }
+
+  private async handleZodError(
+    logger: ReturnType<typeof createLogger>,
+    event: string,
+    message: string,
+    error: ZodError
+  ): Promise<Response> {
+    await logger.warn(
+      event,
+      { details: error.issues },
+      { userId: this.userId }
+    );
+
+    return new Response(
+      JSON.stringify({
+        error: message,
+        details: error.issues,
+      }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 }

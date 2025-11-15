@@ -174,18 +174,57 @@ export async function markRead(itemId: string): Promise<void> {
 /**
  * Trigger manual scan
  */
-export async function triggerScan(): Promise<void> {
+export async function triggerScan(params?: {
+  sourceId?: number;
+  force?: boolean;
+  startDate?: string;
+  endDate?: string;
+}): Promise<void> {
   const response = await fetch(`${API_BASE}/scan`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify(params || {}),
   });
 
   if (!response.ok) {
     throw new Error('Failed to trigger scan');
   }
+}
+
+export async function reprocessItems(params: {
+  sourceId?: number;
+  startDate?: string;
+  endDate?: string;
+}): Promise<void> {
+  const response = await fetch(`${API_BASE}/reprocess`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ...params, force: true }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to trigger reprocess');
+  }
+}
+
+export interface SourceSummary {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export async function fetchSources(): Promise<SourceSummary[]> {
+  const response = await fetch(`${API_BASE}/sources`);
+  if (!response.ok) {
+    throw new Error('Failed to load sources');
+  }
+
+  const data = await response.json<{ sources: SourceSummary[] }>();
+  return data.sources;
 }
 
 /**

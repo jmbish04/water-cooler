@@ -26,42 +26,62 @@ interface ItemCardProps {
  * Generate auto questions based on item content
  */
 function generateQuestions(item: Item): string[] {
-  const questions: string[] = [];
+  const questionSet = new Set<string>();
+  const add = (value: string | undefined | null) => {
+    if (!value) return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    questionSet.add(trimmed);
+  };
 
-  // Question based on summary
+  const shortTitle = item.title.length > 80 ? `${item.title.slice(0, 77)}...` : item.title;
+
   if (item.summary) {
-    questions.push(`What are the key features?`);
+    add(`What are the key takeaways from "${shortTitle}"?`);
   }
 
-  // Question based on source
-  if (item.metadata?.source === 'github') {
-    questions.push(`How does this work technically?`);
-    questions.push(`What problems does this solve?`);
-  } else if (item.metadata?.source === 'reddit') {
-    questions.push(`What's the main discussion about?`);
-    questions.push(`What are the top insights?`);
-  } else if (item.metadata?.source === 'appstore') {
-    questions.push(`What makes this app unique?`);
-    questions.push(`Who should use this?`);
-  } else if (item.metadata?.source === 'discord') {
-    questions.push(`What's the context here?`);
-    questions.push(`What's the key takeaway?`);
-  } else if (item.metadata?.source === 'igdux') {
-    questions.push(`How could I use this Worker in my project?`);
-    questions.push(`What makes this implementation interesting?`);
+  if (item.reason) {
+    add(`Why is this worth a look?`);
   }
 
-  // Generic questions if we don't have enough
-  while (questions.length < 3) {
-    const generic = [
-      `Can you explain this further?`,
-      `What's most interesting here?`,
-      `How can I use this?`,
-    ];
-    questions.push(generic[questions.length] || generic[0]);
+  if (item.tags && item.tags.length > 0) {
+    const focusTag = item.tags[0];
+    add(`How does this relate to ${focusTag}?`);
   }
 
-  return questions.slice(0, 3);
+  const source = item.metadata?.source;
+  switch (source) {
+    case 'github':
+      add(`What problem does this project solve for developers?`);
+      add(`How do I get started using this repository?`);
+      break;
+    case 'reddit':
+      add(`What is the community's main discussion in this thread?`);
+      add(`What insight sparked the conversation here?`);
+      break;
+    case 'appstore':
+      add(`Who will benefit most from this app?`);
+      add(`What standout feature should I try first?`);
+      break;
+    case 'discord':
+      add(`What context should I know before joining this conversation?`);
+      break;
+    case 'igdux':
+      add(`How could I adapt this Worker idea for my own use case?`);
+      break;
+    default:
+      add(`What is the most exciting part of this content?`);
+  }
+
+  const fallbacks = [
+    `How can I apply this in my projects?`,
+    `What should I explore next from here?`,
+    `What challenges does this help address?`,
+  ];
+
+  fallbacks.forEach(add);
+
+  return Array.from(questionSet).slice(0, 5);
 }
 
 export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, followup }: ItemCardProps) {
@@ -71,20 +91,32 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
       ? item.aiQuestions
       : generateQuestions(item)
   );
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(() =>
+    questions.length > 1 ? Math.floor(Math.random() * questions.length) : 0
+  );
   const [fadeState, setFadeState] = useState<'in' | 'out'>('in');
   // Rotate questions every 3 seconds
   useEffect(() => {
-    const interval = setInterval(() => {
-      setFadeState('out');
-      setTimeout(() => {
-        setCurrentQuestionIndex((prev) => (prev + 1) % questions.length);
-        setFadeState('in');
-      }, 300);
-    }, 3000);
+    if (questions.length <= 1) return;
 
-    return () => clearInterval(interval);
-  }, [questions.length]);
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    const startDelay = 500 + Math.random() * 1500;
+
+    const timeoutId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        setFadeState('out');
+        setTimeout(() => {
+          setCurrentQuestionIndex((prev) => (prev + 1) % questions.length);
+          setFadeState('in');
+        }, 300);
+      }, 3200);
+    }, startDelay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [questions.length, questions]);
 
   const sourceColors: Record<string, string> = {
     github: 'blue',

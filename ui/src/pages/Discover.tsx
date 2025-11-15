@@ -16,14 +16,22 @@ import ItemCard from '../components/ItemCard';
 import ChatInterface from '../components/ChatInterface';
 import MarqueeBadges from '../components/MarqueeBadges';
 
-type SourceType = 'github' | 'reddit' | 'discord' | 'appstore';
+const SOURCE_ORDER = ['github', 'reddit', 'discord', 'appstore', 'igdux', 'other'] as const;
+type SourceType = (typeof SOURCE_ORDER)[number];
 
-interface GroupedItems {
-  github: Item[];
-  reddit: Item[];
-  discord: Item[];
-  appstore: Item[];
-}
+type GroupedItems = Record<SourceType, Item[]>;
+
+const SOURCE_LABELS: Record<SourceType, string> = {
+  github: 'GitHub',
+  reddit: 'Reddit',
+  discord: 'Discord',
+  appstore: 'App Store',
+  igdux: 'Igdux',
+  other: 'Other Sources',
+};
+
+const isSourceType = (value: string): value is SourceType =>
+  SOURCE_ORDER.includes(value as SourceType);
 
 export default function Discover() {
   const [items, setItems] = useState<Item[]>([]);
@@ -40,18 +48,29 @@ export default function Discover() {
 
   // Group items by source
   const groupedItems = useMemo<GroupedItems>(() => {
-    const groups: GroupedItems = {
-      github: [],
-      reddit: [],
-      discord: [],
-      appstore: [],
+    const groups = SOURCE_ORDER.reduce<GroupedItems>((acc, key) => {
+      acc[key] = [];
+      return acc;
+    }, {} as GroupedItems);
+
+    const inferSource = (item: Item): SourceType => {
+      const metaSource = typeof item.metadata?.source === 'string' ? item.metadata.source.toLowerCase() : null;
+      if (metaSource && isSourceType(metaSource)) {
+        return metaSource;
+      }
+
+      const url = item.url.toLowerCase();
+      if (url.includes('github.com')) return 'github';
+      if (url.includes('reddit.com')) return 'reddit';
+      if (url.includes('discord.com') || url.includes('discord.gg')) return 'discord';
+      if (url.includes('itunes.apple.com') || url.includes('apps.apple.com')) return 'appstore';
+      if (url.includes('igdux.com')) return 'igdux';
+      return 'other';
     };
 
     items.forEach((item) => {
-      const source = (item.metadata?.source || 'github') as SourceType;
-      if (groups[source]) {
-        groups[source].push(item);
-      }
+      const source = inferSource(item);
+      groups[source].push(item);
     });
 
     return groups;
@@ -224,15 +243,6 @@ export default function Discover() {
   }
 
   // Normal view: grouped by source
-  const sourceLabels = {
-    github: 'GitHub',
-    reddit: 'Reddit',
-    discord: 'Discord',
-    appstore: 'App Store',
-  };
-
-  const sourceOrder: SourceType[] = ['github', 'reddit', 'discord', 'appstore'];
-
   return (
     <Stack gap="xl">
       <div>
@@ -250,14 +260,14 @@ export default function Discover() {
         </Center>
       ) : (
         <Stack gap="xl">
-          {sourceOrder.map((source) => {
+          {SOURCE_ORDER.map((source) => {
             const sourceItems = groupedItems[source];
             if (sourceItems.length === 0) return null;
 
             return (
               <Box key={source}>
                 <Title order={3} mb="md">
-                  {sourceLabels[source]}
+                  {SOURCE_LABELS[source]}
                 </Title>
 
                 <MarqueeBadges items={sourceItems} onBadgeClick={handleBadgeClick} />
@@ -277,7 +287,7 @@ export default function Discover() {
                   ))}
                 </SimpleGrid>
 
-                {source !== 'appstore' && <Divider my="xl" />}
+                {source !== SOURCE_ORDER[SOURCE_ORDER.length - 1] && <Divider my="xl" />}
               </Box>
             );
           })}

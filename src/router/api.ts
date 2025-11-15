@@ -34,6 +34,7 @@ import {
   MarkReadBodySchema,
   UpdateConfigBodySchema,
   TriggerScanBodySchema,
+  ReprocessBodySchema,
 } from '../types/api';
 import { getItems, getItemById, getSources, createSource } from '../services/db';
 import { searchSimilar, answerQuestion } from '../services/curator';
@@ -281,7 +282,7 @@ api.post('/config', zValidator('json', UpdateConfigBodySchema), async (c) => {
  */
 api.post('/scan', zValidator('json', TriggerScanBodySchema), async (c) => {
   try {
-    const { sourceId } = c.req.valid('json');
+    const { sourceId, force, startDate, endDate } = c.req.valid('json');
 
     // Trigger scheduler
     const schedulerId = c.env.SCHEDULER_ACTOR.idFromName('scheduler');
@@ -289,6 +290,33 @@ api.post('/scan', zValidator('json', TriggerScanBodySchema), async (c) => {
 
     const response = await schedulerStub.fetch('http://scheduler/trigger', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceId, force, startDate, endDate }),
+    });
+
+    const result = await response.json();
+
+    return jsonOk(c, result);
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * POST /api/reprocess
+ * Force reprocess existing entries for a source (or all sources)
+ */
+api.post('/reprocess', zValidator('json', ReprocessBodySchema), async (c) => {
+  try {
+    const { sourceId, startDate, endDate } = c.req.valid('json');
+
+    const schedulerId = c.env.SCHEDULER_ACTOR.idFromName('scheduler');
+    const schedulerStub = c.env.SCHEDULER_ACTOR.get(schedulerId);
+
+    const response = await schedulerStub.fetch('http://scheduler/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceId, force: true, startDate, endDate }),
     });
 
     const result = await response.json();

@@ -20,7 +20,7 @@
 
 import { Env } from '../types/env';
 import { createLogger } from '../utils/logger';
-import { getSources } from '../services/db';
+import { getSources, getSourceById } from '../services/db';
 
 export class SchedulerActor implements DurableObject {
   private state: DurableObjectState;
@@ -45,7 +45,22 @@ export class SchedulerActor implements DurableObject {
     }
 
     if (request.method === 'POST' && url.pathname === '/trigger') {
-      return this.triggerScan();
+      let options: { sourceId?: number; force?: boolean; startDate?: string; endDate?: string } = {};
+      try {
+        const body = await request.clone().json();
+        if (body && typeof body === 'object') {
+          options = {
+            sourceId: typeof body.sourceId === 'number' ? body.sourceId : undefined,
+            force: body.force === undefined ? undefined : Boolean(body.force),
+            startDate: typeof body.startDate === 'string' ? body.startDate : undefined,
+            endDate: typeof body.endDate === 'string' ? body.endDate : undefined,
+          };
+        }
+      } catch {
+        // Ignore parse errors; default options will be used
+      }
+
+      return this.triggerScan(options);
     }
 
     if (request.method === 'GET' && url.pathname === '/status') {
@@ -121,33 +136,98 @@ export class SchedulerActor implements DurableObject {
    * Step 4 - Log completion
    */
   async alarm(): Promise<void> {
+    try {
+      await this.runScan();
+    } catch {
+      // runScan handles its own logging/broadcasting on failure
+    } finally {
+      const nextAlarm = Date.now() + 6 * 60 * 60 * 1000;
+      await this.state.storage.setAlarm(nextAlarm);
+    }
+  }
+
+  /**
+   * Trigger immediate scan
+   */
+  private async triggerScan(options: {
+    sourceId?: number;
+    force?: boolean;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<Response> {
     const logger = createLogger(this.env.DB, 'SchedulerActor');
-    const start = Date.now();
 
     try {
-      // Broadcast scan start
+      const result = await this.runScan(options);
+
+      return new Response(
+        JSON.stringify({ success: true, ...result }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      await logger.error('TRIGGER_FAILED', error);
+      return new Response(
+        JSON.stringify({ error: 'Failed to trigger scan' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  private async runScan(options: {
+    sourceId?: number;
+    force?: boolean;
+    startDate?: string;
+    endDate?: string;
+  } = {}) {
+    const logger = createLogger(this.env.DB, 'SchedulerActor');
+    const start = Date.now();
+    const force = Boolean(options.force);
+    const { startDate, endDate } = options;
+    const rangeLabel = startDate || endDate ? ` (range ${startDate || '…'} → ${endDate || '…'})` : '';
+
+    try {
       this.broadcastLog({
         type: 'scan_started',
-        message: 'Starting scheduled scan of all enabled sources',
+        message: options.sourceId
+          ? `Starting scan for source ${options.sourceId}${force ? ' (force)' : ''}${rangeLabel}`
+          : `Starting scan of all enabled sources${force ? ' (force)' : ''}${rangeLabel}`,
         timestamp: new Date().toISOString(),
         level: 'info',
       });
 
-      // Step 1 - Fetch enabled sources
-      const sources = await getSources(this.env.DB, true);
+      let sources;
+      if (options.sourceId !== undefined) {
+        const source = await getSourceById(this.env.DB, options.sourceId);
+        if (!source) {
+          throw new Error(`Source ${options.sourceId} not found`);
+        }
+        sources = [source];
+      } else {
+        sources = await getSources(this.env.DB, true);
+      }
+
+      if (sources.length === 0) {
+        await logger.warn('NO_SOURCES_TO_SCAN');
+        this.broadcastLog({
+          type: 'scan_skipped',
+          message: 'No sources available to scan',
+          timestamp: new Date().toISOString(),
+          level: 'info',
+        });
+        return { sourcesScanned: 0, force, durationMs: Date.now() - start };
+      }
 
       this.broadcastLog({
         type: 'sources_loaded',
-        message: `Found ${sources.length} enabled sources to scan`,
+        message: `Preparing ${sources.length} source(s)${force ? ' with force reprocess' : ''}${rangeLabel}`,
         timestamp: new Date().toISOString(),
         level: 'info',
       });
 
-      // Step 2 - Enqueue scans
       for (const source of sources) {
         this.broadcastLog({
           type: 'source_enqueuing',
-          message: `Enqueuing scan for ${source.name}`,
+          message: `Enqueuing scan for ${source.name}${force ? ' (force)' : ''}${rangeLabel}`,
           sourceId: source.id,
           sourceName: source.name,
           timestamp: new Date().toISOString(),
@@ -160,11 +240,17 @@ export class SchedulerActor implements DurableObject {
           source: source.type,
           config: source.config,
           triggeredAt: new Date().toISOString(),
+          force,
+          startDate,
+          endDate,
         });
 
         await logger.info('SCAN_ENQUEUED', {
           sourceId: source.id,
           source: source.type,
+          force,
+          startDate,
+          endDate,
         });
 
         this.broadcastLog({
@@ -177,24 +263,24 @@ export class SchedulerActor implements DurableObject {
         });
       }
 
-      // Step 3 - Schedule next alarm (6 hours)
-      const nextAlarm = Date.now() + 6 * 60 * 60 * 1000;
-      await this.state.storage.setAlarm(nextAlarm);
-
-      // Step 4 - Update state
       await this.state.storage.put('lastRun', new Date().toISOString());
 
       await logger.info('SCHEDULER_COMPLETED', {
         sourcesScanned: sources.length,
+        force,
+        startDate,
+        endDate,
         durationMs: Date.now() - start,
       });
 
       this.broadcastLog({
         type: 'scan_completed',
-        message: `Scan completed successfully. Enqueued ${sources.length} sources in ${Date.now() - start}ms`,
+        message: `Scan completed. Enqueued ${sources.length} source(s) in ${Date.now() - start}ms`,
         timestamp: new Date().toISOString(),
         level: 'success',
       });
+
+      return { sourcesScanned: sources.length, force, startDate, endDate, durationMs: Date.now() - start };
     } catch (error) {
       await logger.error('SCHEDULER_FAILED', error, {
         durationMs: Date.now() - start,
@@ -206,29 +292,8 @@ export class SchedulerActor implements DurableObject {
         timestamp: new Date().toISOString(),
         level: 'error',
       });
-    }
-  }
 
-  /**
-   * Trigger immediate scan
-   */
-  private async triggerScan(): Promise<Response> {
-    const logger = createLogger(this.env.DB, 'SchedulerActor');
-
-    try {
-      // Run scan immediately
-      await this.alarm();
-
-      return new Response(
-        JSON.stringify({ success: true, message: 'Scan triggered' }),
-        { headers: { 'Content-Type': 'application/json' } }
-      );
-    } catch (error) {
-      await logger.error('TRIGGER_FAILED', error);
-      return new Response(
-        JSON.stringify({ error: 'Failed to trigger scan' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      throw error;
     }
   }
 

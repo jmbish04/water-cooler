@@ -7,15 +7,21 @@
  * - Trigger manual scans
  */
 
-import { useState } from 'react';
-import { Stack, Title, Text, Button, Card, Group, Modal } from '@mantine/core';
-import { IconRefresh, IconMail } from '@tabler/icons-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Stack, Title, Text, Button, Card, Group, Modal, Select, TextInput, SimpleGrid } from '@mantine/core';
+import { IconRefresh, IconMail, IconRecycle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { triggerScan } from '../lib/api';
+import { triggerScan, reprocessItems, fetchSources, SourceSummary } from '../lib/api';
 import ScanLogViewer from '../components/ScanLogViewer';
 
 export default function Settings() {
   const [showLogViewer, setShowLogViewer] = useState(false);
+  const [sources, setSources] = useState<SourceSummary[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [reprocessing, setReprocessing] = useState(false);
 
   const handleScan = async () => {
     try {
@@ -37,6 +43,65 @@ export default function Settings() {
         color: 'red',
       });
       setShowLogViewer(false);
+    }
+  };
+
+  useEffect(() => {
+    const loadSources = async () => {
+      setSourcesLoading(true);
+      try {
+        const result = await fetchSources();
+        setSources(result);
+      } catch (error) {
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to load sources',
+          color: 'red',
+        });
+      } finally {
+        setSourcesLoading(false);
+      }
+    };
+
+    loadSources();
+  }, []);
+
+  const sourceOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All Sources' },
+      ...sources.map((source) => ({
+        value: String(source.id),
+        label: `${source.name} (${source.type})`,
+      })),
+    ],
+    [sources]
+  );
+
+  const handleReprocess = async () => {
+    try {
+      setReprocessing(true);
+      setShowLogViewer(true);
+
+      await reprocessItems({
+        sourceId: selectedSource === 'all' ? undefined : Number(selectedSource),
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      });
+
+      notifications.show({
+        title: 'Reprocess Started',
+        message: 'Reprocessing has been queued. Monitor progress in the logs.',
+        color: 'blue',
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to trigger reprocess',
+        color: 'red',
+      });
+      setShowLogViewer(false);
+    } finally {
+      setReprocessing(false);
     }
   };
 
@@ -62,6 +127,52 @@ export default function Settings() {
               Trigger Manual Scan
             </Button>
           </div>
+        </Stack>
+      </Card>
+
+      <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Stack gap="md">
+          <div>
+            <Text fw={600} mb="xs">
+              Reprocess Historical Items
+            </Text>
+            <Text size="sm" c="dimmed" mb="md">
+              Regenerate AI summaries, tags, and embeddings for content that was ingested before the latest workflow changes.
+            </Text>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <Select
+                label="Source"
+                data={sourceOptions}
+                value={selectedSource}
+                onChange={(value) => setSelectedSource(value || 'all')}
+                placeholder="Select source"
+                disabled={sourcesLoading}
+              />
+              <div />
+              <TextInput
+                label="Start Date"
+                type="date"
+                value={startDate}
+                onChange={(event) => setStartDate(event.currentTarget.value)}
+              />
+              <TextInput
+                label="End Date"
+                type="date"
+                value={endDate}
+                onChange={(event) => setEndDate(event.currentTarget.value)}
+              />
+            </SimpleGrid>
+          </div>
+          <Group>
+            <Button
+              leftSection={<IconRecycle size={16} />}
+              onClick={handleReprocess}
+              loading={reprocessing}
+              disabled={sourcesLoading}
+            >
+              Reprocess Items
+            </Button>
+          </Group>
         </Stack>
       </Card>
 
