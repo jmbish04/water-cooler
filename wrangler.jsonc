@@ -11,7 +11,7 @@
     "head_sampling_rate": 1
   },
   "vars": {
-    "AI_MODEL": "@cf/openai/gpt-oss-120b",
+    "AI_MODEL": "@cf/openai/gpt-4o-mini",
     "ENVIRONMENT": "production"
   },
   "assets": {

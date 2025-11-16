@@ -7,11 +7,12 @@
  * - Track processed posts
  */
 
-import { Env } from '../types/env';
-import { RedditConfig } from '../types/domain';
-import { fetchRedditPosts } from '../services/reddit';
-import { createLogger } from '../utils/logger';
-import { generateItemId } from '../utils/hash';
+import { Env } from '../../types/env';
+import { RedditConfig } from '../../types/domain';
+import { fetchRedditPosts } from '../../integrations/reddit';
+import { createLogger } from '../../utils/logger';
+import { generateItemId } from '../../utils/hash';
+import { updateSourceLastScan } from '../../services/db';
 
 export class RedditActor implements DurableObject {
   private state: DurableObjectState;
@@ -102,6 +103,9 @@ export class RedditActor implements DurableObject {
       }
 
       await this.state.storage.put('processed', processed);
+
+      // Update last scan timestamp
+      await updateSourceLastScan(this.env.DB, sourceId);
 
       await logger.info('REDDIT_SCAN_COMPLETED', {
         sourceId,

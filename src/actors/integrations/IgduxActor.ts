@@ -1,19 +1,25 @@
 /**
- * Discord Actor (Durable Object)
+ * Igdux Actor (Durable Object)
  *
  * Purpose:
- * - Fetch messages from Discord channels
+ * - Fetch posts from Igdux JSON feed (Cloudflare Worker projects collection)
+ * - Translate Chinese content to English using Workers AI
  * - Enqueue items for curation
- * - Track processed messages
+ * - Track processed posts
+ *
+ * AI Agent Hints:
+ * - Igdux feed URL: https://www.igdux.com/feed?format=json
+ * - Content is in Chinese, translated to English automatically
+ * - Updates regularly with new Cloudflare Worker projects
  */
 
-import { Env } from '../types/env';
-import { DiscordConfig } from '../types/domain';
-import { fetchDiscordMessages } from '../services/discord';
-import { createLogger } from '../utils/logger';
-import { generateItemId } from '../utils/hash';
+import { Env } from '../../types/env';
+import { fetchIgduxFeed } from '../../integrations/igdux';
+import { createLogger } from '../../utils/logger';
+import { generateItemId } from '../../utils/hash';
+import { updateSourceLastScan } from '../../services/db';
 
-export class DiscordActor implements DurableObject {
+export class IgduxActor implements DurableObject {
   private state: DurableObjectState;
   private env: Env;
 
@@ -33,24 +39,22 @@ export class DiscordActor implements DurableObject {
   }
 
   private async scan(request: Request): Promise<Response> {
-    const logger = createLogger(this.env.DB, 'DiscordActor');
+    const logger = createLogger(this.env.DB, 'IgduxActor');
     const start = Date.now();
 
     try {
-      const { sourceId, config, force, startDate, endDate } = await request.json<{
+      const { sourceId, force, startDate, endDate } = await request.json<{
         sourceId: number;
-        config: DiscordConfig;
         force?: boolean;
         startDate?: string;
         endDate?: string;
       }>();
 
-      const messages = await fetchDiscordMessages(
-        config,
-        this.env.CACHE,
-        this.env.DISCORD_BOT_TOKEN
-      );
-      const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
+      // Fetch and translate Igdux feed
+      const items = await fetchIgduxFeed(this.env.AI, this.env.CACHE);
+
+      const processed =
+        (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
       const startBoundary = startDate ? new Date(startDate) : undefined;
       const endBoundary = endDate ? new Date(endDate) : undefined;
@@ -67,13 +71,13 @@ export class DiscordActor implements DurableObject {
       };
 
       let newCount = 0;
-      for (const msg of messages) {
-        if (!inRange(msg.metadata?.publishedAt)) {
+      for (const item of items) {
+        if (!inRange(item.metadata?.publishedAt)) {
           continue;
         }
 
-        if (force || !processed.has(msg.url)) {
-          const itemId = await generateItemId(sourceId, msg.url);
+        if (force || !processed.has(item.url)) {
+          const itemId = await generateItemId(sourceId, item.url);
           const curatorId = this.env.CURATOR_ACTOR.idFromName(itemId);
           const curatorStub = this.env.CURATOR_ACTOR.get(curatorId);
 
@@ -83,35 +87,44 @@ export class DiscordActor implements DurableObject {
             body: JSON.stringify({
               itemId,
               sourceId,
-              source: 'discord',
-              title: msg.title,
-              url: msg.url,
-              content: msg.content,
-              metadata: msg.metadata,
+              source: 'igdux',
+              title: item.title, // Already translated
+              url: item.url,
+              content: item.content, // Already translated
+              metadata: item.metadata,
             }),
           });
 
-          processed.add(msg.url);
+          processed.add(item.url);
           newCount++;
         }
       }
 
       await this.state.storage.put('processed', processed);
 
-      await logger.info('DISCORD_SCAN_COMPLETED', {
+      // Update last scan timestamp
+      await updateSourceLastScan(this.env.DB, sourceId);
+
+      await logger.info('IGDUX_SCAN_COMPLETED', {
         sourceId,
-        totalMessages: messages.length,
-        newMessages: newCount,
+        totalItems: items.length,
+        newItems: newCount,
         durationMs: Date.now() - start,
       });
 
       return new Response(
-        JSON.stringify({ success: true, scanned: messages.length, new: newCount }),
+        JSON.stringify({
+          success: true,
+          scanned: items.length,
+          new: newCount,
+        }),
         { headers: { 'Content-Type': 'application/json' } }
       );
     } catch (error) {
-      await logger.error('DISCORD_SCAN_FAILED', error);
-      return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
+      await logger.error('IGDUX_SCAN_FAILED', error);
+      return new Response(JSON.stringify({ error: String(error) }), {
+        status: 500,
+      });
     }
   }
 }

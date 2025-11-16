@@ -161,7 +161,7 @@ export async function getItems(
       itemsQuery = itemsQuery.where(({ exists, selectFrom }) =>
         exists(
           selectFrom('user_actions')
-            .where('itemId', '=', kysely.ref('i.id'))
+            .whereRef('itemId', '=', 'i.id')
             .where('userId', '=', query.userId!)
             .where('action', '=', 'star')
             .select(kysely.fn.count('id').as('count'))
@@ -174,7 +174,7 @@ export async function getItems(
         not(
           exists(
             selectFrom('user_actions')
-              .where('itemId', '=', kysely.ref('i.id'))
+              .whereRef('itemId', '=', 'i.id')
               .where('userId', '=', query.userId!)
               .where('action', '=', 'read')
               .select(kysely.fn.count('id').as('count'))
@@ -187,7 +187,7 @@ export async function getItems(
       itemsQuery = itemsQuery.where(({ exists, selectFrom }) =>
         exists(
           selectFrom('user_actions')
-            .where('itemId', '=', kysely.ref('i.id'))
+            .whereRef('itemId', '=', 'i.id')
             .where('userId', '=', query.userId!)
             .where('action', '=', 'followup')
             .select(kysely.fn.count('id').as('count'))

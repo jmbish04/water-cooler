@@ -1,19 +1,20 @@
 /**
- * App Store Actor (Durable Object)
+ * Discord Actor (Durable Object)
  *
  * Purpose:
- * - Fetch apps from iTunes Search API
+ * - Fetch messages from Discord channels
  * - Enqueue items for curation
- * - Track processed apps
+ * - Track processed messages
  */
 
-import { Env } from '../types/env';
-import { AppStoreConfig } from '../types/domain';
-import { fetchAppStoreApps } from '../services/appstore';
-import { createLogger } from '../utils/logger';
-import { generateItemId } from '../utils/hash';
+import { Env } from '../../types/env';
+import { DiscordConfig } from '../../types/domain';
+import { fetchDiscordMessages } from '../../integrations/discord';
+import { createLogger } from '../../utils/logger';
+import { generateItemId } from '../../utils/hash';
+import { updateSourceLastScan } from '../../services/db';
 
-export class AppStoreActor implements DurableObject {
+export class DiscordActor implements DurableObject {
   private state: DurableObjectState;
   private env: Env;
 
@@ -33,19 +34,23 @@ export class AppStoreActor implements DurableObject {
   }
 
   private async scan(request: Request): Promise<Response> {
-    const logger = createLogger(this.env.DB, 'AppStoreActor');
+    const logger = createLogger(this.env.DB, 'DiscordActor');
     const start = Date.now();
 
     try {
       const { sourceId, config, force, startDate, endDate } = await request.json<{
         sourceId: number;
-        config: AppStoreConfig;
+        config: DiscordConfig;
         force?: boolean;
         startDate?: string;
         endDate?: string;
       }>();
 
-      const apps = await fetchAppStoreApps(config, this.env.CACHE);
+      const messages = await fetchDiscordMessages(
+        config,
+        this.env.CACHE,
+        this.env.DISCORD_BOT_TOKEN
+      );
       const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
       const startBoundary = startDate ? new Date(startDate) : undefined;
@@ -63,13 +68,13 @@ export class AppStoreActor implements DurableObject {
       };
 
       let newCount = 0;
-      for (const app of apps) {
-        if (!inRange(app.metadata?.publishedAt)) {
+      for (const msg of messages) {
+        if (!inRange(msg.metadata?.publishedAt)) {
           continue;
         }
 
-        if (force || !processed.has(app.url)) {
-          const itemId = await generateItemId(sourceId, app.url);
+        if (force || !processed.has(msg.url)) {
+          const itemId = await generateItemId(sourceId, msg.url);
           const curatorId = this.env.CURATOR_ACTOR.idFromName(itemId);
           const curatorStub = this.env.CURATOR_ACTOR.get(curatorId);
 
@@ -79,34 +84,37 @@ export class AppStoreActor implements DurableObject {
             body: JSON.stringify({
               itemId,
               sourceId,
-              source: 'appstore',
-              title: app.title,
-              url: app.url,
-              content: app.content,
-              metadata: app.metadata,
+              source: 'discord',
+              title: msg.title,
+              url: msg.url,
+              content: msg.content,
+              metadata: msg.metadata,
             }),
           });
 
-          processed.add(app.url);
+          processed.add(msg.url);
           newCount++;
         }
       }
 
       await this.state.storage.put('processed', processed);
 
-      await logger.info('APPSTORE_SCAN_COMPLETED', {
+      // Update last scan timestamp
+      await updateSourceLastScan(this.env.DB, sourceId);
+
+      await logger.info('DISCORD_SCAN_COMPLETED', {
         sourceId,
-        totalApps: apps.length,
-        newApps: newCount,
+        totalMessages: messages.length,
+        newMessages: newCount,
         durationMs: Date.now() - start,
       });
 
       return new Response(
-        JSON.stringify({ success: true, scanned: apps.length, new: newCount }),
+        JSON.stringify({ success: true, scanned: messages.length, new: newCount }),
         { headers: { 'Content-Type': 'application/json' } }
       );
     } catch (error) {
-      await logger.error('APPSTORE_SCAN_FAILED', error);
+      await logger.error('DISCORD_SCAN_FAILED', error);
       return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
     }
   }

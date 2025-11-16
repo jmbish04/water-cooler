@@ -23,7 +23,7 @@
  */
 
 import { Hono } from 'hono';
-import { Env, validateEnv } from './types/env';
+import { Env } from './types/env';
 import { corsMiddleware, requestLogger, errorHandler } from './router/middleware';
 import apiRoutes from './router/api';
 import openapiRoutes from './router/openapi';
@@ -31,11 +31,11 @@ import openapiRoutes from './router/openapi';
 // Export Durable Object classes
 export { SchedulerActor } from './actors/SchedulerActor';
 export { CuratorActor } from './actors/CuratorActor';
-export { GitHubActor } from './actors/GitHubActor';
-export { AppStoreActor } from './actors/AppStoreActor';
-export { RedditActor } from './actors/RedditActor';
-export { DiscordActor } from './actors/DiscordActor';
-export { IgduxActor } from './actors/IgduxActor';
+export { GitHubActor } from './actors/integrations/GitHubActor';
+export { AppStoreActor } from './actors/integrations/AppStoreActor';
+export { RedditActor } from './actors/integrations/RedditActor';
+export { DiscordActor } from './actors/integrations/DiscordActor';
+export { IgduxActor } from './actors/integrations/IgduxActor';
 export { UserSessionActor } from './actors/UserSessionActor';
 
 /**
@@ -162,7 +162,7 @@ async function queue(
         const actorId = actorBinding.idFromName(`source-${payload.sourceId}`);
         const actorStub = actorBinding.get(actorId);
 
-        await actorStub.fetch('http://actor/scan', {
+        await actorStub.fetch('http://scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -68,29 +68,24 @@ export type ItemAPI = z.infer<typeof ItemSchema>;
  * Source Configuration Schemas
  */
 export const GitHubConfigSchema = z.object({
-  org: z.string().optional(),
-  repos: z.array(z.string()).optional(),
-  trending: z.object({
-    language: z.string().optional(),
-    since: z.enum(['daily', 'weekly', 'monthly']).optional(),
-  }).optional(),
+  strategies: z.array(z.enum(['trending', 'top'])).optional(),
+  languages: z.array(z.string()).optional(),
+  since: z.enum(['daily', 'weekly', 'monthly']).optional(),
 });
 
 export const AppStoreConfigSchema = z.object({
-  term: z.string().optional(),
-  category: z.string().optional(),
+  processAll: z.boolean().optional(),
   country: z.string().length(2).optional(),
 });
 
 export const RedditConfigSchema = z.object({
-  subreddit: z.string(),
+  useAuthenticatedFeed: z.boolean().optional(),
   sort: z.enum(['hot', 'new', 'top', 'rising']).optional(),
   timeframe: z.enum(['hour', 'day', 'week', 'month', 'year', 'all']).optional(),
 });
 
 export const DiscordConfigSchema = z.object({
-  guildId: z.string(),
-  channelId: z.string(),
+  useAuthenticatedChannels: z.boolean().optional(),
   webhookUrl: z.string().url().optional(),
 });
 

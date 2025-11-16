@@ -14,7 +14,7 @@
  */
 
 import { ItemMetadata } from '../types/domain';
-import { translateToEnglish } from './translation';
+import { translateToEnglish } from '../services/translation';
 
 /**
  * Igdux JSON feed item structure
