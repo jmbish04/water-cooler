@@ -88,15 +88,15 @@ WebSocket: It also hosts a WebSocket server (/scheduler) to stream real-time sca
 
 These actors are responsible for fetching data from a single type of source.
 
-GitHubActor: (src/actors/GitHubActor.ts) Fetches repo data from GitHub.
+GitHubActor: (src/actors/integrations/GitHubActor.ts) Fetches repo data from GitHub.
 
-AppStoreActor: (src/actors/AppStoreActor.ts) Fetches app data from the iTunes Search API.
+AppStoreActor: (src/actors/integrations/AppStoreActor.ts) Fetches app data from the iTunes Search API.
 
-RedditActor: (src/actors/RedditActor.ts) Fetches posts from subreddits.
+RedditActor: (src/actors/integrations/RedditActor.ts) Fetches posts from subreddits.
 
-DiscordActor: (src/actors/DiscordActor.ts) Fetches messages from Discord channels.
+DiscordActor: (src/actors/integrations/DiscordActor.ts) Fetches messages from Discord channels.
 
-IgduxActor: (src/actors/IgduxActor.ts) Fetches and translates posts from the Igdux JSON feed.
+IgduxActor: (src/actors/integrations/IgduxActor.ts) Fetches and translates posts from the Igdux JSON feed.
 
 3. CuratorActor
 
