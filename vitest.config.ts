@@ -7,7 +7,7 @@ export default defineWorkersProject(() => {
       poolOptions: {
         workers: {
           wrangler: {
-            configPath: './wrangler.jsonc'
+            configPath: './wrangler.toml'
           },
         },
       },

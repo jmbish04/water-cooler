@@ -72,7 +72,7 @@ curl -X POST http://127.0.0.1:8787/rpc \
 ```typescript
 // In a separate Cloudflare Worker with a service binding to this one (e.g., as "CORE"):
 async function callCreateTask(env) {
-  const response = await env.CORE.fetch("http://core-worker/rpc", {
+  const response = await env.CORE.fetch("http://localhost/rpc", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

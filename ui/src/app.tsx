@@ -9,13 +9,11 @@
 
 import { useState } from 'react';
 import { AppShell, Tabs, Title, Container, Group, Text } from '@mantine/core';
-import { IconSparkles, IconStar, IconBookmark, IconSettings, IconHeartbeat } from '@tabler/icons-react';
+import { IconSparkles, IconStar, IconBookmark, IconSettings } from '@tabler/icons-react';
 import Discover from './pages/Discover';
 import Starred from './pages/Starred';
 import ReadingList from './pages/ReadingList';
 import Settings from './pages/Settings';
-import Health from './pages/Health';
-import HealthStatusBadge from './components/HealthStatusBadge';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string | null>('discover');
@@ -34,7 +32,6 @@ export default function App() {
                 </Text>
               </div>
             </Group>
-            <HealthStatusBadge onNavigateToHealth={() => setActiveTab('health')} />
           </Group>
         </Container>
       </AppShell.Header>
@@ -52,9 +49,6 @@ export default function App() {
               <Tabs.Tab value="reading" leftSection={<IconBookmark size={16} />}>
                 Reading List
               </Tabs.Tab>
-              <Tabs.Tab value="health" leftSection={<IconHeartbeat size={16} />}>
-                Health
-              </Tabs.Tab>
               <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
                 Settings
               </Tabs.Tab>
@@ -70,10 +64,6 @@ export default function App() {
 
             <Tabs.Panel value="reading" pt="xl">
               <ReadingList />
-            </Tabs.Panel>
-
-            <Tabs.Panel value="health" pt="xl">
-              <Health />
             </Tabs.Panel>
 
             <Tabs.Panel value="settings" pt="xl">

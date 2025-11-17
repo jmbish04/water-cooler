@@ -2,7 +2,7 @@
  * AI Payload Adapter (Router)
  *
  * Creates the correct payload for ai.run() based on the model ID.
- * - gpt-oss-120b expects: { input: string | array, reasoning?: { effort, summary } }
+ * - gpt-oss-120b expects: { instructions, input }
  * - Llama/Mistral expect: { messages: [...] }
  * - Fallback: { prompt: "..." }
  */
@@ -12,13 +12,10 @@ export function createAiPayload(
   prompt: string
 ): Record<string, unknown> {
   // Route for gpt-oss-120b
-  // According to Cloudflare docs, input field should contain both instructions and prompt
   if (model.includes('gpt-oss-120b')) {
     return {
-      input: `${instructions}\n\n${prompt}`,
-      reasoning: {
-        effort: 'medium'
-      }
+      instructions,
+      input: prompt,
     };
   }
 

@@ -188,52 +188,6 @@ export async function triggerScan(): Promise<void> {
 }
 
 /**
- * Get health status
- */
-export async function getHealthStatus(): Promise<{ healthChecks: any[] }> {
-  const response = await fetch(`${API_BASE}/health`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch health status');
-  }
-  return response.json();
-}
-
-/**
- * Run health check
- */
-export async function runHealthCheck(): Promise<{ healthChecks: any[]; count: number }> {
-  const response = await fetch(`${API_BASE}/health/check`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to run health check');
-  }
-  return response.json();
-}
-
-/**
- * Get test results
- */
-export async function getTestResults(opts?: {
-  sessionId?: string;
-  onlyFailures?: boolean;
-  limit?: number;
-}): Promise<{ results: any[]; total: number }> {
-  const query = new URLSearchParams();
-  if (opts?.sessionId) query.append('sessionId', opts.sessionId);
-  if (opts?.onlyFailures) query.append('onlyFailures', 'true');
-  if (opts?.limit) query.append('limit', String(opts.limit));
-
-  const response = await fetch(`${API_BASE}/test-results?${query.toString()}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch test results');
-  }
-  return response.json();
-}
-
-/**
  * Get user ID (for demo, generate/retrieve from localStorage)
  */
 function getUserId(): string {

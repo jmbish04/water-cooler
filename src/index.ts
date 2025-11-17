@@ -1,9 +1,18 @@
 import { buildRouter } from "./router";
 import { RoomDO } from "./do/RoomDO";
-import { buildOpenAPIDocument } from "./utils/openapi";
 import { mcpRoutes } from "./mcp";
 import type { Env } from "./types";
 import YAML from "yaml";
+
+const app = buildRouter();
+
+app.doc('/openapi.json', {
+  openapi: '3.1.0',
+  info: {
+    title: 'Multi-Protocol Worker API',
+    version: '1.0.0',
+  },
+});
 
 /**
  * The main entry point for the Cloudflare Worker.
@@ -12,22 +21,6 @@ import YAML from "yaml";
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-
-    // OpenAPI documentation endpoints.
-    // The documentation is generated dynamically from the Zod schemas.
-    if (url.pathname === "/openapi.json") {
-      const doc = buildOpenAPIDocument(url.origin);
-      return new Response(JSON.stringify(doc, null, 2), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (url.pathname === "/openapi.yaml") {
-      const doc = buildOpenAPIDocument(url.origin);
-      const yaml = YAML.stringify(doc);
-      return new Response(yaml, {
-        headers: { "Content-Type": "application/yaml" },
-      });
-    }
 
     // WebSocket upgrade endpoint.
     // Requests to /ws are delegated to the RoomDO Durable Object.
@@ -60,48 +53,9 @@ export default {
     }
 
     // For all other requests, delegate to the Hono router.
-    // This handles the REST API, /scheduler, static assets, and the generic RPC endpoint.
-    const app = buildRouter();
+    // This handles the REST API and the generic RPC endpoint.
     return app.fetch(request, env, ctx);
   },
-
-  // Scheduled handler (cron triggers)
-  //
-  // Runs workflows on schedule:
-  // - Cron "0 */6 * * *" (every 6 hours) — scheduleScan
-  // - Cron "0 9 * * *" (9am daily) — dailyDigest
-  // - Cron "0 0 * * *" (midnight daily) — health checks
-  async scheduled(
-    event: ScheduledEvent,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<void> {
-    const cron = event.cron;
-
-    // Every 6 hours — trigger scan workflow
-    if (cron === '0 */6 * * *') {
-      const schedulerId = env.SCHEDULER_ACTOR.idFromName('scheduler');
-      const schedulerStub = env.SCHEDULER_ACTOR.get(schedulerId);
-
-      ctx.waitUntil(
-        schedulerStub.fetch('http://scheduler/trigger', {
-          method: 'POST',
-        })
-      );
-    }
-
-    // 9am daily — trigger digest workflow
-    if (cron === '0 9 * * *') {
-      const { dailyDigestWorkflow } = await import('./workflows/dailyDigest');
-      ctx.waitUntil(dailyDigestWorkflow(env));
-    }
-
-    // Midnight daily — run health checks on all connectors
-    if (cron === '0 0 * * *') {
-      const { runDailyHealthChecks } = await import('./workflows/healthCheck');
-      ctx.waitUntil(runDailyHealthChecks(env));
-    }
-  }
 };
 
 // Export the Durable Object class for wrangler.

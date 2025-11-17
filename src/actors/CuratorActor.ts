@@ -88,12 +88,6 @@ export class CuratorActor implements DurableObject {
       }
 
       // Step 4 - Create item in D1
-      // Merge source into metadata
-      const metadata = {
-        ...(curationRequest.metadata || {}),
-        source: curationRequest.source,
-      };
-
       const item = await createItem(this.env.DB, {
         sourceId: curationRequest.sourceId,
         title: curationRequest.title,
@@ -103,7 +97,7 @@ export class CuratorActor implements DurableObject {
         reason: result.reason,
         score: result.score,
         vectorId,
-        metadata,
+        metadata: curationRequest.metadata || null,
       });
 
       await logger.info('CURATION_COMPLETED', {

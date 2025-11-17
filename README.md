@@ -30,7 +30,7 @@ A fully-featured content curation platform that discovers, summarizes, vectorize
 ✅ **User Actions**: Star, follow-up, mark as read
 ✅ **Email Digests**: Daily top items via Cloudflare Email
 ✅ **Audit Logs**: Comprehensive logging to D1 for observability
-✅ **OpenAPI**: Dynamic spec generation at `/openapi.json` and `/openapi.yaml`
+✅ **OpenAPI**: Dynamic spec generation at `/openapi.json`
 ✅ **Static Frontend**: React + Mantine compiled to /public
 
 ---
@@ -39,7 +39,7 @@ A fully-featured content curation platform that discovers, summarizes, vectorize
 
 ```
 curation-hub/
-├── wrangler.jsonc              # Cloudflare Workers config
+├── wrangler.toml              # Cloudflare Workers config
 ├── package.json                # Dependencies and scripts
 ├── tsconfig.json               # TypeScript config
 ├── schema.sql                  # Complete D1 schema
@@ -52,7 +52,6 @@ curation-hub/
 │   ├── index.ts                # Main Hono app + exports
 │   ├── router/
 │   │   ├── api.ts              # REST API routes
-│   │   ├── openapi.ts          # OpenAPI spec generator
 │   │   └── middleware.ts       # CORS, logging, validation
 │   ├── actors/                 # Durable Objects
 │   │   ├── SchedulerActor.ts   # Periodic scan orchestration
@@ -97,7 +96,8 @@ curation-hub/
 │       │   ├── ReadingList.tsx
 │       │   └── Settings.tsx
 │       └── lib/
-│           └── api.ts          # API client
+│           ├── api.ts          # API client
+│           └── useAnnotation.ts # AI annotation hook
 └── public/                     # Static build output (served by Worker)
 ```
 
@@ -136,9 +136,14 @@ npm run vectorize:create
 npm run queue:create
 ```
 
-### 3. Update `wrangler.jsonc`
+### 3. Update `wrangler.toml`
 
-Replace placeholder IDs with actual values from step 2.
+Replace placeholder IDs with actual values from step 2. You will also need to add an `[[ai]]` binding for Workers AI:
+
+```toml
+[[ai]]
+binding = "AI"
+```
 
 ### 4. Run Migrations
 
@@ -184,6 +189,10 @@ npm run dev:ui
 - `POST /api/followup/:id` - Add/remove from reading list
 - `POST /api/mark-read/:id` - Mark as read
 
+### AI
+
+- `POST /ai/annotate` - Generate a category, score, and summary for a given input.
+
 ### Configuration
 
 - `GET /api/sources` - List all sources
@@ -193,7 +202,6 @@ npm run dev:ui
 ### Documentation
 
 - `GET /openapi.json` - OpenAPI 3.1 spec (JSON)
-- `GET /openapi.yaml` - OpenAPI 3.1 spec (YAML)
 
 ---
 
