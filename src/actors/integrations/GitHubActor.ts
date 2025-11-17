@@ -16,11 +16,12 @@
  * - POST /scan - Scan GitHub source
  */
 
-import { Env } from '../types/env';
-import { GitHubConfig } from '../types/domain';
-import { fetchGitHubRepos } from '../services/github';
-import { createLogger } from '../utils/logger';
-import { generateItemId } from '../utils/hash';
+import { Env } from '../../types/env';
+import { GitHubConfig } from '../../types/domain';
+import { fetchGitHubRepos } from '../../integrations/github';
+import { createLogger } from '../../utils/logger';
+import { generateItemId } from '../../utils/hash';
+import { updateSourceLastScan } from '../../services/db';
 
 export class GitHubActor implements DurableObject {
   private state: DurableObjectState;
@@ -118,6 +119,9 @@ export class GitHubActor implements DurableObject {
 
       // Step 5 - Update processed set
       await this.state.storage.put('processed', processed);
+
+      // Update last scan timestamp
+      await updateSourceLastScan(this.env.DB, sourceId);
 
       await logger.info('GITHUB_SCAN_COMPLETED', {
         sourceId,

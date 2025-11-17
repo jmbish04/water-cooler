@@ -44,32 +44,25 @@ export interface IgduxConfig {
 }
 
 export interface GitHubConfig {
-  org?: string;
-  repos?: string[];
-  trending?: {
-    language?: string;
-    since?: 'daily' | 'weekly' | 'monthly';
-  };
+  strategies?: ('trending' | 'top')[]; // Default: ['trending', 'top']
+  languages?: string[]; // Optional: filter by programming languages
+  since?: 'daily' | 'weekly' | 'monthly'; // For trending repos
 }
 
 export interface AppStoreConfig {
-  term?: string;
-  category?: string;
-  country?: string; // ISO 3166-1 alpha-2
+  processAll?: boolean; // Default: true - process all available apps
+  country?: string; // ISO 3166-1 alpha-2, default: 'US'
 }
 
 export interface RedditConfig {
-  subreddit: string; // Use "MY_FEED" to get authenticated user's feed
-  sort?: 'hot' | 'new' | 'top' | 'rising';
-  timeframe?: 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
-  includeTerms?: string[];
-  excludeTerms?: string[];
+  useAuthenticatedFeed?: boolean; // Default: true - uses authenticated user's followed communities
+  sort?: 'hot' | 'new' | 'top' | 'rising'; // Default: 'new' for new posts
+  timeframe?: 'hour' | 'day' | 'week' | 'month' | 'year' | 'all'; // For 'top' and 'rising'
 }
 
 export interface DiscordConfig {
-  guildId: string;
-  channelId: string;
-  webhookUrl?: string;
+  useAuthenticatedChannels?: boolean; // Default: true - uses authenticated user's followed channels
+  webhookUrl?: string; // Optional: fallback webhook if auth not available
 }
 
 /**

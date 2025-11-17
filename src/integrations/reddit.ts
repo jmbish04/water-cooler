@@ -2,10 +2,9 @@
  * Reddit Data Fetching Service
  *
  * Purpose:
- * - Fetch posts from a user's authenticated feed OR a specific subreddit.
+ * - Fetch posts from authenticated user's feed (all communities they follow).
  * - Support sorting (hot, new, top, rising).
  * - Cache results to reduce API calls.
- * - Filter posts by inclusion/exclusion keywords.
  *
  * AI Agent Hints:
  * - Uses Reddit OAuth API (requires auth token for user feeds).
@@ -59,39 +58,17 @@ async function getAccessToken(auth: RedditAuth): Promise<string> {
   return data.access_token;
 }
 
-/**
- * Checks if a post matches the inclusion/exclusion criteria.
- */
-function passesFilter(post: RedditPost, config: RedditConfig): boolean {
-  const titleAndText = (post.data.title + ' ' + post.data.selftext).toLowerCase();
-  
-  const include = config.includeTerms?.map(t => t.toLowerCase()) || [];
-  const exclude = config.excludeTerms?.map(t => t.toLowerCase()) || [];
-
-  if (exclude.length > 0) {
-    if (exclude.some(term => titleAndText.includes(term))) {
-      return false; // Exclude
-    }
-  }
-  
-  if (include.length > 0) {
-    if (!include.some(term => titleAndText.includes(term))) {
-      return false; // Does not include required term
-    }
-  }
-  
-  return true;
-}
 
 /**
- * Fetch Reddit posts
- * (UPDATED to handle auth and filtering)
+ * Fetch Reddit posts from authenticated user's feed
+ * Processes all new posts from communities the user follows
  */
 export async function fetchRedditPosts(
   config: RedditConfig,
   cache: KVNamespace,
-  auth?: RedditAuth // Updated from simple token
+  auth?: RedditAuth
 ): Promise<Array<{ title: string; url: string; content: string; metadata: ItemMetadata }>> {
+  const useAuthenticatedFeed = config.useAuthenticatedFeed !== false; // Default: true
   const cacheKey = `reddit:${JSON.stringify(config)}`;
 
   const cached = await cache.get(cacheKey, 'json');
@@ -99,37 +76,32 @@ export async function fetchRedditPosts(
     return cached as any;
   }
 
-  let baseUrl = 'https://www.reddit.com';
-  let path = '';
+  if (!useAuthenticatedFeed || !auth) {
+    throw new Error('Reddit connector requires authenticated feed. Please provide Reddit OAuth credentials.');
+  }
+
+  // Get access token
+  let accessToken: string;
+  try {
+    accessToken = await getAccessToken(auth);
+  } catch (err) {
+    throw new Error(`Reddit authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Fetch from authenticated user's feed (all communities they follow)
+  const baseUrl = 'https://oauth.reddit.com';
+  const sort = config.sort || 'new'; // Default to 'new' for new posts
+  const path = `/${sort}.json`;
   const headers: HeadersInit = {
     'User-Agent': 'Cloudflare-Curation-Hub/1.0',
+    'Authorization': `Bearer ${accessToken}`,
   };
-
-  const isFeed = config.subreddit === 'MY_FEED';
-
-  if (isFeed && auth) {
-    // --- NEW AUTH LOGIC ---
-    try {
-      const accessToken = await getAccessToken(auth);
-      baseUrl = 'https://oauth.reddit.com';
-      path = `/${config.sort || 'top'}.json`;
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    } catch (err) {
-      console.error("Reddit auth failed, falling back to public.", err);
-      // Fallback to unauthenticated public feed on auth error
-      path = `/r/all/${config.sort || 'top'}.json`;
-    }
-    // --- END NEW AUTH LOGIC ---
-  } else {
-    // Unauthenticated request
-    path = `/r/${config.subreddit}/${config.sort || 'top'}.json`;
-  }
 
   const params = new URLSearchParams({
     limit: '100',
   });
 
-  if ((config.sort === 'top' || config.sort === 'rising') && config.timeframe) {
+  if ((sort === 'top' || sort === 'rising') && config.timeframe) {
     params.set('t', config.timeframe);
   }
 
@@ -144,7 +116,6 @@ export async function fetchRedditPosts(
   const posts = data.data?.children || [];
 
   const results = posts
-    .filter(post => passesFilter(post, config)) // Filter by keywords
     .filter(post => !post.data.selftext?.includes('[removed]'))
     .map((post) => ({
       title: post.data.title,

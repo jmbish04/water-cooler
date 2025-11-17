@@ -22,6 +22,23 @@ export function createAiPayload(
     };
   }
 
+  // Route for gpt-3.5-turbo-instruct (completion-style model)
+  if (model.includes('gpt-3.5-turbo-instruct')) {
+    return {
+      prompt: `${instructions}\n\n${prompt}`,
+    };
+  }
+
+  // Route for GPT-4o-mini and other modern GPT models (using messages format)
+  if (model.includes('gpt-4o') || model.includes('gpt-4') || model.includes('gpt-3.5-turbo')) {
+    return {
+      messages: [
+        { role: 'system', content: instructions },
+        { role: 'user', content: prompt },
+      ],
+    };
+  }
+
   // Route for Llama 3, Mistral, etc. (using messages format)
   if (model.includes('llama') || model.includes('mistral')) {
     return {

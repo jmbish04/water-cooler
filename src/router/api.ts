@@ -22,7 +22,7 @@
  * - POST /api/scan - Trigger manual scan
  */
 
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { Env } from '../types/env';
 import {
@@ -36,7 +36,7 @@ import {
   TriggerScanBodySchema,
   ReprocessBodySchema,
 } from '../types/api';
-import { getItems, getItemById, getSources, createSource } from '../services/db';
+import { getItems, getItemById, getSources, getSourceById, createSource } from '../services/db';
 import { searchSimilar, answerQuestion } from '../services/curator';
 import { jsonOk, jsonError, notFound } from '../utils/response';
 import { getUserId } from './middleware';
@@ -137,7 +137,17 @@ api.post('/items/:id/ask', zValidator('json', AskQuestionBodySchema), async (c) 
     const body = c.req.valid('json');
     const userId = getUserId(c);
 
+    console.log('[API] /items/:id/ask - Request:', { itemId, question: body.question?.substring(0, 100) });
+
+    // Check if AI binding is available
+    if (!c.env.AI) {
+      console.error('[API] AI binding not available');
+      return jsonError(c, 'AI service not available', 503);
+    }
+
     const model = getAIModel(c.env);
+    console.log('[API] Using AI model:', model);
+
     const response = await answerQuestion(
       c.env.AI,
       c.env.VEC,
@@ -152,9 +162,14 @@ api.post('/items/:id/ask', zValidator('json', AskQuestionBodySchema), async (c) 
       (id) => getItemById(c.env.DB, id)
     );
 
+    console.log('[API] /items/:id/ask - Success, answer length:', response.answer?.length || 0);
     return jsonOk(c, response);
   } catch (error) {
-    return jsonError(c, error instanceof Error ? error : String(error), 500);
+    console.error('[API] /items/:id/ask - Error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('[API] Error stack:', errorStack);
+    return jsonError(c, errorMessage, 500);
   }
 });
 
@@ -341,39 +356,65 @@ api.get('/health', async (c) => {
 });
 
 /**
+ * GET /api/health/check
  * POST /api/health/check
  * Run health checks on all sources (or specific source)
  */
-api.post('/health/check', async (c) => {
+async function handleHealthCheck(c: Context<{ Bindings: Env }>) {
   try {
-    const body = await c.req.json().catch(() => ({}));
-    const sourceId = body.sourceId as number | undefined;
+    // Support both GET (query params) and POST (body)
+    const query = c.req.query();
+    const body = c.req.method === 'POST' ? await c.req.json().catch(() => ({})) : {};
+    const sourceId = query.sourceId || body.sourceId ? parseInt(query.sourceId || body.sourceId) : undefined;
 
     const sources = sourceId
       ? [await getSourceById(c.env.DB, sourceId)]
       : await getSources(c.env.DB, true);
 
+    if (!sources || sources.length === 0) {
+      return jsonOk(c, { healthChecks: [], count: 0, message: 'No sources found' });
+    }
+
     const results = [];
     for (const source of sources.filter(Boolean)) {
       if (!source) continue;
 
-      const result = await checkSourceHealth(source as any, {
-        GITHUB_TOKEN: c.env.GITHUB_TOKEN,
-        REDDIT_CLIENT_ID: c.env.REDDIT_CLIENT_ID,
-        REDDIT_CLIENT_SECRET: c.env.REDDIT_CLIENT_SECRET,
-        REDDIT_REFRESH_TOKEN: c.env.REDDIT_REFRESH_TOKEN,
-        DISCORD_BOT_TOKEN: c.env.DISCORD_BOT_TOKEN,
-      });
+      try {
+        const result = await checkSourceHealth(source, {
+          GITHUB_TOKEN: c.env.GITHUB_TOKEN,
+          REDDIT_CLIENT_ID: c.env.REDDIT_CLIENT_ID,
+          REDDIT_CLIENT_SECRET: c.env.REDDIT_CLIENT_SECRET,
+          REDDIT_REFRESH_TOKEN: c.env.REDDIT_REFRESH_TOKEN,
+          DISCORD_BOT_TOKEN: c.env.DISCORD_BOT_TOKEN,
+        });
 
-      await storeHealthCheck(c.env.DB, result);
-      results.push(result);
+        await storeHealthCheck(c.env.DB, result);
+        results.push(result);
+      } catch (sourceError) {
+        console.error(`[HEALTH] Failed to check source ${source.id}:`, sourceError);
+        // Continue with other sources
+        results.push({
+          sourceId: source.id,
+          sourceName: source.name,
+          sourceType: source.type,
+          status: 'failed' as const,
+          responseTime: null,
+          errorMessage: sourceError instanceof Error ? sourceError.message : String(sourceError),
+          errorStack: sourceError instanceof Error ? sourceError.stack || null : null,
+          metadata: null,
+        });
+      }
     }
 
     return jsonOk(c, { healthChecks: results, count: results.length });
   } catch (error) {
+    console.error('[HEALTH] Health check failed:', error);
     return jsonError(c, error instanceof Error ? error : String(error), 500);
   }
-});
+}
+
+api.get('/health/check', handleHealthCheck);
+api.post('/health/check', handleHealthCheck);
 
 /**
  * GET /api/tests

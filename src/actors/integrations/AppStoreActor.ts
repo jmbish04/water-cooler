@@ -1,24 +1,20 @@
 /**
- * Igdux Actor (Durable Object)
+ * App Store Actor (Durable Object)
  *
  * Purpose:
- * - Fetch posts from Igdux JSON feed (Cloudflare Worker projects collection)
- * - Translate Chinese content to English using Workers AI
+ * - Fetch apps from iTunes Search API
  * - Enqueue items for curation
- * - Track processed posts
- *
- * AI Agent Hints:
- * - Igdux feed URL: https://www.igdux.com/feed?format=json
- * - Content is in Chinese, translated to English automatically
- * - Updates regularly with new Cloudflare Worker projects
+ * - Track processed apps
  */
 
-import { Env } from '../types/env';
-import { fetchIgduxFeed } from '../services/igdux';
-import { createLogger } from '../utils/logger';
-import { generateItemId } from '../utils/hash';
+import { Env } from '../../types/env';
+import { AppStoreConfig } from '../../types/domain';
+import { fetchAppStoreApps } from '../../integrations/appstore';
+import { createLogger } from '../../utils/logger';
+import { generateItemId } from '../../utils/hash';
+import { updateSourceLastScan } from '../../services/db';
 
-export class IgduxActor implements DurableObject {
+export class AppStoreActor implements DurableObject {
   private state: DurableObjectState;
   private env: Env;
 
@@ -38,22 +34,20 @@ export class IgduxActor implements DurableObject {
   }
 
   private async scan(request: Request): Promise<Response> {
-    const logger = createLogger(this.env.DB, 'IgduxActor');
+    const logger = createLogger(this.env.DB, 'AppStoreActor');
     const start = Date.now();
 
     try {
-      const { sourceId, force, startDate, endDate } = await request.json<{
+      const { sourceId, config, force, startDate, endDate } = await request.json<{
         sourceId: number;
+        config: AppStoreConfig;
         force?: boolean;
         startDate?: string;
         endDate?: string;
       }>();
 
-      // Fetch and translate Igdux feed
-      const items = await fetchIgduxFeed(this.env.AI, this.env.CACHE);
-
-      const processed =
-        (await this.state.storage.get<Set<string>>('processed')) || new Set();
+      const apps = await fetchAppStoreApps(config, this.env.CACHE);
+      const processed = (await this.state.storage.get<Set<string>>('processed')) || new Set();
 
       const startBoundary = startDate ? new Date(startDate) : undefined;
       const endBoundary = endDate ? new Date(endDate) : undefined;
@@ -70,13 +64,13 @@ export class IgduxActor implements DurableObject {
       };
 
       let newCount = 0;
-      for (const item of items) {
-        if (!inRange(item.metadata?.publishedAt)) {
+      for (const app of apps) {
+        if (!inRange(app.metadata?.publishedAt)) {
           continue;
         }
 
-        if (force || !processed.has(item.url)) {
-          const itemId = await generateItemId(sourceId, item.url);
+        if (force || !processed.has(app.url)) {
+          const itemId = await generateItemId(sourceId, app.url);
           const curatorId = this.env.CURATOR_ACTOR.idFromName(itemId);
           const curatorStub = this.env.CURATOR_ACTOR.get(curatorId);
 
@@ -86,41 +80,38 @@ export class IgduxActor implements DurableObject {
             body: JSON.stringify({
               itemId,
               sourceId,
-              source: 'igdux',
-              title: item.title, // Already translated
-              url: item.url,
-              content: item.content, // Already translated
-              metadata: item.metadata,
+              source: 'appstore',
+              title: app.title,
+              url: app.url,
+              content: app.content,
+              metadata: app.metadata,
             }),
           });
 
-          processed.add(item.url);
+          processed.add(app.url);
           newCount++;
         }
       }
 
       await this.state.storage.put('processed', processed);
 
-      await logger.info('IGDUX_SCAN_COMPLETED', {
+      // Update last scan timestamp
+      await updateSourceLastScan(this.env.DB, sourceId);
+
+      await logger.info('APPSTORE_SCAN_COMPLETED', {
         sourceId,
-        totalItems: items.length,
-        newItems: newCount,
+        totalApps: apps.length,
+        newApps: newCount,
         durationMs: Date.now() - start,
       });
 
       return new Response(
-        JSON.stringify({
-          success: true,
-          scanned: items.length,
-          new: newCount,
-        }),
+        JSON.stringify({ success: true, scanned: apps.length, new: newCount }),
         { headers: { 'Content-Type': 'application/json' } }
       );
     } catch (error) {
-      await logger.error('IGDUX_SCAN_FAILED', error);
-      return new Response(JSON.stringify({ error: String(error) }), {
-        status: 500,
-      });
+      await logger.error('APPSTORE_SCAN_FAILED', error);
+      return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
     }
   }
 }
