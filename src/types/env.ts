@@ -67,6 +67,7 @@ export interface Env {
   IGDUX_ACTOR: DurableObjectNamespace;
   CURATOR_ACTOR: DurableObjectNamespace;
   USER_SESSION_ACTOR: DurableObjectNamespace;
+  ROOM_DO: DurableObjectNamespace;
 }
 
 /**

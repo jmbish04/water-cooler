@@ -71,7 +71,8 @@
       { "name": "DISCORD_ACTOR", "class_name": "DiscordActor" },
       { "name": "IGDUX_ACTOR", "class_name": "IgduxActor" },
       { "name": "CURATOR_ACTOR", "class_name": "CuratorActor" },
-      { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" }
+      { "name": "USER_SESSION_ACTOR", "class_name": "UserSessionActor" },
+      { "name": "ROOM_DO", "class_name": "RoomDO" }
     ]
   },
   "migrations": [
@@ -90,6 +91,10 @@
     {
       "tag": "v2",
       "new_classes": ["IgduxActor"]
+    },
+    {
+      "tag": "v3",
+      "new_classes": ["RoomDO"]
     }
   ],
   "send_email": [

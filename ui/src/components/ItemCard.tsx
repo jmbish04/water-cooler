@@ -11,7 +11,8 @@
 import { Card, Text, Badge, Group, Button, ActionIcon, Stack, Progress, Box } from '@mantine/core';
 import { IconStar, IconStarFilled, IconBookmark, IconExternalLink, IconSparkles } from '@tabler/icons-react';
 import { Item } from '../lib/api';
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchAnnotation } from '../lib/useAnnotation';
 
 interface ItemCardProps {
   item: Item;
@@ -85,19 +86,48 @@ function generateQuestions(item: Item): string[] {
 }
 
 export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, followup }: ItemCardProps) {
-  // Prefer AI-generated questions over generated ones
-  const [questions] = useState(() =>
-    item.aiQuestions && item.aiQuestions.length > 0
-      ? item.aiQuestions
-      : generateQuestions(item)
-  );
+  const [ai, setAi] = useState<{ category: string; score: number; summary: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAi(null);
+
+    fetchAnnotation({ title: item.title, url: item.url })
+      .then((annotation) => {
+        if (!cancelled) setAi(annotation);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAi({ category: 'Uncategorized', score: 50, summary: 'No summary available' });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, item.title, item.url]);
+
+  const questions = useMemo(() => {
+    if (item.aiQuestions && item.aiQuestions.length > 0) {
+      return item.aiQuestions;
+    }
+    return generateQuestions(item);
+  }, [item]);
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(() =>
-    questions.length > 1 ? Math.floor(Math.random() * questions.length) : 0
+    questions.length > 1 ? Math.floor(Math.random() * questions.length) : 0,
   );
   const [fadeState, setFadeState] = useState<'in' | 'out'>('in');
-  // Rotate questions every 3 seconds
+
   useEffect(() => {
-    if (questions.length <= 1) return;
+    if (questions.length <= 1) {
+      setCurrentQuestionIndex(0);
+      setFadeState('in');
+      return;
+    }
+
+    setCurrentQuestionIndex(Math.floor(Math.random() * questions.length));
+    setFadeState('in');
 
     let intervalId: ReturnType<typeof setInterval> | undefined;
     const startDelay = 500 + Math.random() * 1500;
@@ -116,7 +146,7 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
       clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, [questions.length, questions]);
+  }, [questions]);
 
   const sourceColors: Record<string, string> = {
     github: 'blue',
@@ -131,6 +161,9 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
   const handleQuestionClick = (question: string) => {
     onAsk(question);
   };
+
+  const hasQuestions = questions.length > 0;
+  const activeQuestion = hasQuestions ? questions[currentQuestionIndex] : '';
 
   return (
     <Card shadow="sm" padding="lg" radius="md" withBorder>
@@ -165,17 +198,15 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
               {item.title}
             </Text>
             <Text size="sm" c="dimmed">
-              {Math.round(item.score * 100)}%
+              {ai ? `${ai.score}%` : '...'}
             </Text>
           </Group>
-          <Progress value={item.score * 100} size="xs" mb="md" />
+          <Progress value={ai?.score ?? 0} size="xs" mb="md" />
         </div>
 
-        {item.summary && (
-          <Text size="sm" c="dimmed" lineClamp={3}>
-            {item.summary}
-          </Text>
-        )}
+        <Text size="sm" c="dimmed" lineClamp={3}>
+          {ai?.summary ?? 'Analyzing…'}
+        </Text>
 
         {item.tags && item.tags.length > 0 && (
           <Group gap="xs">
@@ -184,6 +215,7 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
                 {tag}
               </Badge>
             ))}
+            {ai && <Badge size="sm" variant="outline">{ai.category}</Badge>}
           </Group>
         )}
 
@@ -218,26 +250,28 @@ export default function ItemCard({ item, onStar, onFollowup, onAsk, starred, fol
           </Group>
 
           {/* Rotating AI-generated questions */}
-          <Box
-            style={{
-              opacity: fadeState === 'in' ? 1 : 0,
-              transition: 'opacity 300ms ease-in-out',
-              minHeight: '24px',
-            }}
-          >
-            <Text
-              size="xs"
-              c="blue"
+          {hasQuestions && (
+            <Box
               style={{
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                fontStyle: 'italic',
+                opacity: fadeState === 'in' ? 1 : 0,
+                transition: 'opacity 300ms ease-in-out',
+                minHeight: '24px',
               }}
-              onClick={() => handleQuestionClick(questions[currentQuestionIndex])}
             >
-              💭 {questions[currentQuestionIndex]}
-            </Text>
-          </Box>
+              <Text
+                size="xs"
+                c="blue"
+                style={{
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  fontStyle: 'italic',
+                }}
+                onClick={() => handleQuestionClick(activeQuestion)}
+              >
+                💭 {activeQuestion}
+              </Text>
+            </Box>
+          )}
         </Stack>
       </Stack>
     </Card>
