@@ -162,7 +162,7 @@ async function queue(
         const actorId = actorBinding.idFromName(`source-${payload.sourceId}`);
         const actorStub = actorBinding.get(actorId);
 
-        await actorStub.fetch('http://scan', {
+        await actorStub.fetch('http://actor/scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
