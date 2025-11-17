@@ -1,8 +1,6 @@
 import { rpcRegistry } from './rpc';
+import type { Env as CoreEnv } from './types/env';
 
-export interface Env {
-  ROOM_DO: DurableObjectNamespace;
-  AI: any; // Add the AI binding
-}
+export type Env = CoreEnv;
 
 export type RPCMethod = keyof typeof rpcRegistry;

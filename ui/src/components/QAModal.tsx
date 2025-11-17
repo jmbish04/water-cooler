@@ -44,6 +44,10 @@ export default function QAModal({ opened, onClose, item }: QAModalProps) {
     }
   };
 
+  const handleQuestionClick = (q: string) => {
+    setQuestion(q);
+  };
+
   return (
     <Modal
       opened={opened}
@@ -108,6 +112,28 @@ export default function QAModal({ opened, onClose, item }: QAModalProps) {
               Model: {response.model}
             </Text>
           </Stack>
+        )}
+
+        {!response && item.aiQuestions && item.aiQuestions.length > 0 && (
+          <div>
+            <Text size="sm" fw={600} mb="xs">
+              Suggested questions:
+            </Text>
+            <Stack gap="xs">
+              {item.aiQuestions.map((q, i) => (
+                <Button
+                  key={i}
+                  variant="light"
+                  size="sm"
+                  fullWidth
+                  onClick={() => handleQuestionClick(q)}
+                  style={{ textAlign: 'left', height: 'auto', whiteSpace: 'normal', padding: '8px 12px' }}
+                >
+                  {q}
+                </Button>
+              ))}
+            </Stack>
+          </div>
         )}
       </Stack>
     </Modal>

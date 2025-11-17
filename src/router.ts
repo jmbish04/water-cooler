@@ -163,7 +163,10 @@ export function buildRouter() {
     ].join("\n");
 
     const cache = caches.default;
-    const key = new Request(new URL('/ai/annotate?' + new URLSearchParams({t: body.title})), { method: 'GET' });
+    const cacheUrl = new URL(c.req.url);
+    cacheUrl.pathname = '/ai/annotate';
+    cacheUrl.search = new URLSearchParams({ t: body.title }).toString();
+    const key = new Request(cacheUrl, { method: 'GET' });
     const cached = await cache.match(key);
     if (cached) return cached;
 
@@ -182,7 +185,14 @@ export function buildRouter() {
     const res = new Response(JSON.stringify(data), {
       headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=21600' }
     });
-    c.executionCtx.waitUntil(cache.put(key, res.clone()));
+
+    const cachePut = cache.put(key, res.clone());
+    if (typeof c.executionCtx?.waitUntil === 'function') {
+      c.executionCtx.waitUntil(cachePut);
+    } else {
+      await cachePut;
+    }
+
     return res;
   });
 

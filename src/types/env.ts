@@ -64,8 +64,10 @@ export interface Env {
   APPSTORE_ACTOR: DurableObjectNamespace;
   REDDIT_ACTOR: DurableObjectNamespace;
   DISCORD_ACTOR: DurableObjectNamespace;
+  IGDUX_ACTOR: DurableObjectNamespace;
   CURATOR_ACTOR: DurableObjectNamespace;
   USER_SESSION_ACTOR: DurableObjectNamespace;
+  ROOM_DO: DurableObjectNamespace;
 }
 
 /**

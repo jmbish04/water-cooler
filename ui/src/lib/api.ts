@@ -16,6 +16,7 @@ export interface Item {
   tags: string[] | null;
   reason: string | null;
   score: number;
+  aiQuestions: string[] | null;
   metadata: any;
   createdAt: string;
   updatedAt: string;
@@ -173,18 +174,103 @@ export async function markRead(itemId: string): Promise<void> {
 /**
  * Trigger manual scan
  */
-export async function triggerScan(): Promise<void> {
+export async function triggerScan(params?: {
+  sourceId?: number;
+  force?: boolean;
+  startDate?: string;
+  endDate?: string;
+}): Promise<void> {
   const response = await fetch(`${API_BASE}/scan`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify(params || {}),
   });
 
   if (!response.ok) {
     throw new Error('Failed to trigger scan');
   }
+}
+
+export async function reprocessItems(params: {
+  sourceId?: number;
+  startDate?: string;
+  endDate?: string;
+}): Promise<void> {
+  const response = await fetch(`${API_BASE}/reprocess`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ...params, force: true }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to trigger reprocess');
+  }
+}
+
+export interface SourceSummary {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export async function fetchSources(): Promise<SourceSummary[]> {
+  const response = await fetch(`${API_BASE}/sources`);
+  if (!response.ok) {
+    throw new Error('Failed to load sources');
+  }
+
+  const data = await response.json<{ sources: SourceSummary[] }>();
+  return data.sources;
+}
+
+/**
+ * Get health status
+ */
+export async function getHealthStatus(): Promise<{ healthChecks: any[] }> {
+  const response = await fetch(`${API_BASE}/health`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch health status');
+  }
+  return response.json();
+}
+
+/**
+ * Run health check
+ */
+export async function runHealthCheck(): Promise<{ healthChecks: any[]; count: number }> {
+  const response = await fetch(`${API_BASE}/health/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to run health check');
+  }
+  return response.json();
+}
+
+/**
+ * Get test results
+ */
+export async function getTestResults(opts?: {
+  sessionId?: string;
+  onlyFailures?: boolean;
+  limit?: number;
+}): Promise<{ results: any[]; total: number }> {
+  const query = new URLSearchParams();
+  if (opts?.sessionId) query.append('sessionId', opts.sessionId);
+  if (opts?.onlyFailures) query.append('onlyFailures', 'true');
+  if (opts?.limit) query.append('limit', String(opts.limit));
+
+  const response = await fetch(`${API_BASE}/test-results?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch test results');
+  }
+  return response.json();
 }
 
 /**

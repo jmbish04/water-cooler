@@ -53,19 +53,35 @@ export async function curateContent(
     const { instructions, prompt } = buildCurationPrompt(request);
 
     // Step 2 - Call AI model
-    const payload = createAiPayload(model, instructions, prompt); // Creates the payload that the selected model expects; currently only support gpt-oss-120b and llama3 generally.
+    const payload = createAiPayload(model, instructions, prompt);
+    
+    // Log the payload for debugging
+    console.log('[CURATOR] Calling AI model:', model);
+    console.log('[CURATOR] Payload structure:', JSON.stringify(payload).substring(0, 200));
+    
     const response = await ai.run(model, payload);
+    
+    // Log the raw response for debugging
+    console.log('[CURATOR] Raw AI response:', JSON.stringify(response).substring(0, 500));
 
     // Step 3 - Parse response
     const parsed = parseCurationResponse(response);
 
     // Step 4 - Generate embedding
-    const embedding = await generateEmbedding(ai, request.content);
+    let embedding: number[] = [];
+    try {
+      embedding = await generateEmbedding(ai, request.content);
+      console.log('[CURATOR] Generated embedding, length:', embedding.length);
+    } catch (embedError) {
+      console.error('[CURATOR] Embedding generation failed:', embedError);
+      // Continue without embedding - item will still be created
+    }
 
     await logger.info('CURATION_SUCCESS', {
       itemId: request.itemId,
       source: request.source,
       score: parsed.score,
+      embeddingLength: embedding.length,
       durationMs: Date.now() - start,
     });
 
@@ -115,17 +131,33 @@ export async function searchSimilar(
   ai: Ai,
   topK = 10
 ): Promise<Array<{ id: string; score: number; metadata: Record<string, unknown> }>> {
-  // Generate query embedding
-  const embedding = await generateEmbedding(ai, query);
+  try {
+    // Generate query embedding
+    const embedding = await generateEmbedding(ai, query);
+    
+    if (!embedding || embedding.length === 0) {
+      console.warn('[SEARCH] Empty embedding generated, returning empty results');
+      return [];
+    }
 
-  // Search Vectorize
-  const results = await vec.query(embedding, { topK });
+    // Search Vectorize
+    const results = await vec.query(embedding, { topK });
 
-  return results.matches.map((match) => ({
-    id: match.id.replace('item-', ''), // remove prefix
-    score: match.score,
-    metadata: match.metadata || {},
-  }));
+    if (!results || !results.matches) {
+      console.warn('[SEARCH] No matches returned from Vectorize');
+      return [];
+    }
+
+    return results.matches.map((match) => ({
+      id: match.id.replace('item-', ''), // remove prefix
+      score: match.score,
+      metadata: match.metadata || {},
+    }));
+  } catch (error) {
+    console.error('[SEARCH] Similar search failed:', error);
+    // Return empty array instead of throwing - allows Q&A to continue without related items
+    return [];
+  }
 }
 
 /**
@@ -158,12 +190,17 @@ export async function answerQuestion(
     // Step 2 - Fetch related items (optional)
     let relatedItems: Item[] = [];
     if (request.includeRelated) {
-      const similar = await searchSimilar(vec, request.question, ai, 5);
-      const relatedIds = similar.filter((s) => s.id !== request.itemId).map((s) => s.id);
+      try {
+        const similar = await searchSimilar(vec, request.question, ai, 5);
+        const relatedIds = similar.filter((s) => s.id !== request.itemId).map((s) => s.id);
 
-      for (const id of relatedIds) {
-        const related = await getItemById(id);
-        if (related) relatedItems.push(related);
+        for (const id of relatedIds) {
+          const related = await getItemById(id);
+          if (related) relatedItems.push(related);
+        }
+      } catch (searchError) {
+        console.error('[QA] Failed to fetch related items:', searchError);
+        // Continue without related items - not critical
       }
     }
 
@@ -171,11 +208,24 @@ export async function answerQuestion(
     const { instructions, prompt } = buildQAPrompt(item, request.question, relatedItems);
 
     // Step 4 - Call AI
-    const payload = createAiPayload(model, instructions, prompt); // Creates the payload that the selected model expects; currently only support gpt-oss-120b and llama3 generally.
+    const payload = createAiPayload(model, instructions, prompt);
+    
+    console.log('[QA] Calling AI model:', model);
+    console.log('[QA] Payload structure:', JSON.stringify(payload).substring(0, 200));
+    
     const response = await ai.run(model, payload);
+    
+    console.log('[QA] Raw AI response:', JSON.stringify(response).substring(0, 500));
 
     // Step 5 - Parse response
     const answer = parseQAResponse(response);
+    
+    if (!answer || answer.trim().length === 0) {
+      console.error('[QA] Empty answer from AI');
+      throw new Error('AI returned empty answer');
+    }
+    
+    console.log('[QA] Parsed answer (first 200 chars):', answer.substring(0, 200));
 
     await logger.info('QA_SUCCESS', {
       itemId: request.itemId,
@@ -203,44 +253,74 @@ export async function answerQuestion(
  * Generate text embedding
  */
 async function generateEmbedding(ai: Ai, text: string): Promise<number[]> {
-  const model = '@cf/baai/bge-large-en-v1.5';
-  
-  // 1. Chunk the text into pieces that fit the model's 512-token limit
-  // (Using ~400 words as a safe proxy)
-  const chunks = chunkText(text, 400);
+  try {
+    const model = '@cf/baai/bge-large-en-v1.5';
+    
+    if (!text || text.trim().length === 0) {
+      console.warn('[EMBEDDING] Empty text provided');
+      return [];
+    }
+    
+    // 1. Chunk the text into pieces that fit the model's 512-token limit
+    // (Using ~400 words as a safe proxy)
+    const chunks = chunkText(text, 400);
 
-  if (chunks.length === 0) {
-    console.warn('No content to embed.');
+    if (chunks.length === 0) {
+      console.warn('[EMBEDDING] No content to embed after chunking');
+      return [];
+    }
+
+    // 2. Get embeddings for all chunks in a single batch
+    const response = await ai.run(model, {
+      text: chunks,
+    });
+
+    if (!response) {
+      console.error('[EMBEDDING] No response from AI model');
+      return [];
+    }
+
+    // @ts-ignore - Workers AI types are not always up-to-date
+    const allEmbeddings: number[][] = response.data || response;
+
+    if (!allEmbeddings || allEmbeddings.length === 0) {
+      console.error('[EMBEDDING] No embeddings in response:', JSON.stringify(response).substring(0, 200));
+      return [];
+    }
+
+    // 3. Average the embeddings to get a single vector for the document
+    return averageEmbeddings(allEmbeddings);
+  } catch (error) {
+    console.error('[EMBEDDING] Embedding generation failed:', error);
+    // Return empty array instead of throwing - allows processing to continue
     return [];
   }
-
-  // 2. Get embeddings for all chunks in a single batch
-  const response = await ai.run(model, {
-    text: chunks,
-  });
-
-  // @ts-ignore - Workers AI types are not always up-to-date
-  const allEmbeddings: number[][] = response.data;
-
-  if (!allEmbeddings || allEmbeddings.length === 0) {
-    throw new Error('Failed to generate embeddings');
-  }
-
-  // 3. Average the embeddings to get a single vector for the document
-  return averageEmbeddings(allEmbeddings);
 }
 
 /**
  * Build curation prompt
  */
 function buildCurationPrompt(request: CurationRequest): { instructions: string; prompt: string } {
-  const instructions = `You are an expert content curator. Analyze the following content and respond in this exact JSON format:
+  const instructions = `You are an expert content curator. Analyze the following content and respond ONLY with valid JSON in this exact format:
+
 {
-  "summary": "A concise summary (2-3 sentences)",
+  "summary": "A concise 1-2 sentence summary",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "reason": "Why this is interesting/valuable (1 sentence)",
-  "score": 0.85 //[quality score from 0.0 to 1.0 (1.0 = exceptional, 0.5 = good, 0.0 = poor)]
-}`;
+  "score": 75,
+  "questions": [
+    "Insightful follow-up question 1?",
+    "Insightful follow-up question 2?",
+    "Insightful follow-up question 3?"
+  ]
+}
+
+CRITICAL REQUIREMENTS:
+- Respond ONLY with valid JSON - no markdown, no explanations, no extra text
+- score: Quality score from 0 to 100 (100 = exceptional, 50 = good, 0 = poor)
+- questions: Exactly 3 insightful follow-up questions users might ask
+- tags: Up to 5 short, relevant topic tags
+- summary: 1-2 sentences maximum`;
 
   const prompt = `Analyze this ${request.source} content:
     Title: ${request.title}
@@ -254,32 +334,173 @@ function buildCurationPrompt(request: CurationRequest): { instructions: string; 
 /**
  * Parse AI curation response
  */
+function extractTextFromResponse(response: any): string {
+  if (!response) return '';
+
+  if (typeof response === 'string') {
+    return response;
+  }
+
+  if (typeof response !== 'object') {
+    return '';
+  }
+
+  const directFields = ['response', 'text', 'content', 'output_text', 'answer'];
+  for (const field of directFields) {
+    const value = (response as any)[field];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+
+  // Handle Workers AI `output` structure
+  if (Array.isArray((response as any).output)) {
+    const pieces: string[] = [];
+    for (const entry of (response as any).output) {
+      if (!entry) continue;
+      if (typeof entry === 'string') {
+        pieces.push(entry);
+        continue;
+      }
+
+      if (typeof entry.text === 'string') {
+        pieces.push(entry.text);
+      }
+
+      if (entry.content) {
+        if (typeof entry.content === 'string') {
+          pieces.push(entry.content);
+        } else if (Array.isArray(entry.content)) {
+          for (const inner of entry.content) {
+            if (!inner) continue;
+            if (typeof inner === 'string') {
+              pieces.push(inner);
+            } else if (typeof inner.text === 'string') {
+              pieces.push(inner.text);
+            }
+          }
+        }
+      }
+    }
+
+    const merged = pieces.join('\n').trim();
+    if (merged) {
+      return merged;
+    }
+  }
+
+  if ((response as any).result) {
+    const nested = extractTextFromResponse((response as any).result);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  if (Array.isArray((response as any).content)) {
+    const pieces: string[] = [];
+    for (const part of (response as any).content) {
+      if (!part) continue;
+      if (typeof part === 'string') {
+        pieces.push(part);
+      } else if (typeof part.text === 'string') {
+        pieces.push(part.text);
+      }
+    }
+    const merged = pieces.join('\n').trim();
+    if (merged) {
+      return merged;
+    }
+  }
+
+  // Handle messages format (gpt-4o-mini, etc.)
+  if (Array.isArray((response as any).messages)) {
+    const pieces: string[] = [];
+    for (const msg of (response as any).messages) {
+      if (msg?.content && typeof msg.content === 'string') {
+        pieces.push(msg.content);
+      }
+    }
+    const merged = pieces.join('\n').trim();
+    if (merged) {
+      return merged;
+    }
+  }
+
+  // Handle OpenAI-style choices format
+  if (Array.isArray((response as any).choices)) {
+    for (const choice of (response as any).choices) {
+      const content = choice?.message?.content;
+      if (typeof content === 'string' && content.trim()) {
+        return content;
+      }
+    }
+  }
+
+  return '';
+}
+
 function parseCurationResponse(response: any): Omit<CurationResult, 'embedding'> {
   try {
-    // Extract JSON from response
-    let text = typeof response === 'string' ? response : response.response || JSON.stringify(response);
+    // Extract text from response object
+    // gpt-oss-120b returns { response: "text content" }
+    // gpt-4o-mini returns { response: { text: "..." } } or messages format
+    const text = extractTextFromResponse(response);
+
+    if (!text) {
+      console.error('[PARSE_ERROR] No text content in response');
+      console.error('[PARSE_ERROR] Full response:', JSON.stringify(response, null, 2));
+      throw new Error('No text content in AI response');
+    }
+
+    console.log('[PARSE] Extracted text (first 500 chars):', text.substring(0, 500));
 
     // Try to find JSON in the response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        summary: parsed.summary || 'No summary available',
-        tags: parsed.tags || [],
-        reason: parsed.reason || 'Interesting content',
-        score: Math.max(0, Math.min(1, parsed.score || 0.5)),
-      };
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        console.log('[PARSE] Successfully parsed JSON:', {
+          hasSummary: !!parsed.summary,
+          tagCount: Array.isArray(parsed.tags) ? parsed.tags.length : 0,
+          score: parsed.score,
+          questionCount: Array.isArray(parsed.questions) ? parsed.questions.length : 0,
+        });
+
+        // Parse score - convert from 0-100 to 0.0-1.0 for backwards compatibility
+        let score = parseFloat(parsed.score) || 50;
+        // If score is in 0-100 range, normalize to 0.0-1.0
+        if (score > 1) {
+          score = score / 100;
+        }
+        score = Math.max(0, Math.min(1, score));
+
+        return {
+          summary: parsed.summary || 'No summary available',
+          tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+          reason: parsed.reason || 'Interesting content',
+          score,
+          questions: Array.isArray(parsed.questions) ? parsed.questions.slice(0, 3) : [],
+        };
+      } catch (parseError) {
+        console.error('[PARSE_ERROR] JSON parse failed:', parseError);
+        console.error('[PARSE_ERROR] JSON string:', jsonMatch[0].substring(0, 500));
+        throw parseError;
+      }
     }
 
+    console.error('[PARSE_ERROR] No valid JSON found in response text');
     throw new Error('No valid JSON found in response');
   } catch (error) {
-    console.error('[PARSE_ERROR]', error, response);
+    console.error('[PARSE_ERROR]', error);
+    console.error('[PARSE_ERROR] Response type:', typeof response);
+    console.error('[PARSE_ERROR] Response (first 1000 chars):', JSON.stringify(response).substring(0, 1000));
     // Fallback
     return {
-      summary: 'Summary unavailable',
+      summary: 'Summary unavailable - AI parsing failed',
       tags: [],
       reason: 'Content requires review',
       score: 0.3,
+      questions: [],
     };
   }
 }
@@ -320,13 +541,80 @@ Tags: ${item.tags?.join(', ') || 'N/A'}
  * Parse Q&A response
  */
 function parseQAResponse(response: any): string {
-  if (typeof response === 'string') {
-    return response.trim();
-  }
+  try {
+    // Handle string responses
+    if (typeof response === 'string') {
+      const trimmed = response.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
 
-  if (response.response) {
-    return response.response.trim();
-  }
+    // Handle object responses - extract text from various possible fields
+    if (response && typeof response === 'object') {
+      // Try common response field names
+      const text = response.response || response.text || response.content || response.output || response.answer;
 
-  return JSON.stringify(response);
+      if (text && typeof text === 'string') {
+        return text.trim();
+      }
+
+    // Handle Workers AI result wrappers
+    if (response.result) {
+      const { result } = response;
+      if (typeof result === 'string') {
+        return result.trim();
+      }
+      if (Array.isArray(result) && result.length > 0) {
+        const first = result[0];
+        if (typeof first === 'string') return first.trim();
+        if (first && typeof first === 'object') {
+          const candidate = first.text || first.content || first.output_text;
+          if (candidate && typeof candidate === 'string') return candidate.trim();
+        }
+      }
+      if (typeof result === 'object') {
+        const candidate =
+          (result as any).output_text ||
+          (result as any).text ||
+          (result as any).content;
+        if (candidate && typeof candidate === 'string') {
+          return candidate.trim();
+        }
+      }
+    }
+
+    // Handle array-based outputs (e.g., openai-compatible array response)
+    if (Array.isArray(response)) {
+      const first = response[0];
+      if (typeof first === 'string') return first.trim();
+      if (first && typeof first === 'object') {
+        const candidate = first.text || first.content || first.output_text;
+        if (candidate && typeof candidate === 'string') return candidate.trim();
+      }
+    }
+
+    if (response.outputs && Array.isArray(response.outputs) && response.outputs.length > 0) {
+      const first = response.outputs[0];
+      if (typeof first === 'string') return first.trim();
+      if (first && typeof first === 'object') {
+        const candidate = first.text || first.content || first.output_text;
+        if (candidate && typeof candidate === 'string') return candidate.trim();
+      }
+    }
+
+    // Try OpenAI-style response
+    if (response.choices && response.choices[0]?.message?.content) {
+      return response.choices[0].message.content.trim();
+    }
+
+    // If we still don't have text, log and return error message
+    console.error('[QA_PARSE_ERROR] Could not extract text from response:', JSON.stringify(response).substring(0, 500));
+    return 'Unable to generate answer. Please try again.';
+    }
+  } catch (error) {
+    console.error('[QA_PARSE_ERROR] Exception while parsing response:', error);
+    console.error('[QA_PARSE_ERROR] Response:', JSON.stringify(response).substring(0, 500));
+    return 'Error processing AI response. Please try again.';
+  }
 }

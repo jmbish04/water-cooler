@@ -18,7 +18,7 @@ import { z } from 'zod';
 /**
  * Common Schemas
  */
-export const SourceTypeSchema = z.enum(['github', 'appstore', 'reddit', 'discord']);
+export const SourceTypeSchema = z.enum(['github', 'appstore', 'reddit', 'discord', 'igdux']);
 export type SourceTypeAPI = z.infer<typeof SourceTypeSchema>;
 
 export const ActionTypeSchema = z.enum(['read', 'star', 'followup', 'unstar']);
@@ -68,29 +68,24 @@ export type ItemAPI = z.infer<typeof ItemSchema>;
  * Source Configuration Schemas
  */
 export const GitHubConfigSchema = z.object({
-  org: z.string().optional(),
-  repos: z.array(z.string()).optional(),
-  trending: z.object({
-    language: z.string().optional(),
-    since: z.enum(['daily', 'weekly', 'monthly']).optional(),
-  }).optional(),
+  strategies: z.array(z.enum(['trending', 'top'])).optional(),
+  languages: z.array(z.string()).optional(),
+  since: z.enum(['daily', 'weekly', 'monthly']).optional(),
 });
 
 export const AppStoreConfigSchema = z.object({
-  term: z.string().optional(),
-  category: z.string().optional(),
+  processAll: z.boolean().optional(),
   country: z.string().length(2).optional(),
 });
 
 export const RedditConfigSchema = z.object({
-  subreddit: z.string(),
+  useAuthenticatedFeed: z.boolean().optional(),
   sort: z.enum(['hot', 'new', 'top', 'rising']).optional(),
   timeframe: z.enum(['hour', 'day', 'week', 'month', 'year', 'all']).optional(),
 });
 
 export const DiscordConfigSchema = z.object({
-  guildId: z.string(),
-  channelId: z.string(),
+  useAuthenticatedChannels: z.boolean().optional(),
   webhookUrl: z.string().url().optional(),
 });
 
@@ -184,8 +179,15 @@ export type UpdateConfigBody = z.infer<typeof UpdateConfigBodySchema>;
 export const TriggerScanBodySchema = z.object({
   sourceId: z.number().optional(),
   force: z.boolean().default(false),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
 });
 export type TriggerScanBody = z.infer<typeof TriggerScanBodySchema>;
+
+export const ReprocessBodySchema = TriggerScanBodySchema.extend({
+  force: z.literal(true).default(true),
+});
+export type ReprocessBody = z.infer<typeof ReprocessBodySchema>;
 
 /**
  * Response Schemas

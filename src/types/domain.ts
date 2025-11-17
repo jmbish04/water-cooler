@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * Domain Types for AI-Curated Discovery Hub
  *
@@ -16,7 +18,7 @@
 /**
  * Source Types
  */
-export type SourceType = 'github' | 'appstore' | 'reddit' | 'discord';
+export type SourceType = 'github' | 'appstore' | 'reddit' | 'discord' | 'igdux';
 
 export interface Source {
   id: number;
@@ -33,35 +35,34 @@ export type SourceConfig =
   | GitHubConfig
   | AppStoreConfig
   | RedditConfig
-  | DiscordConfig;
+  | DiscordConfig
+  | IgduxConfig;
+
+export interface IgduxConfig {
+  // No configuration needed - uses fixed feed URL
+  enabled?: boolean;
+}
 
 export interface GitHubConfig {
-  org?: string;
-  repos?: string[];
-  trending?: {
-    language?: string;
-    since?: 'daily' | 'weekly' | 'monthly';
-  };
+  strategies?: ('trending' | 'top')[]; // Default: ['trending', 'top']
+  languages?: string[]; // Optional: filter by programming languages
+  since?: 'daily' | 'weekly' | 'monthly'; // For trending repos
 }
 
 export interface AppStoreConfig {
-  term?: string;
-  category?: string;
-  country?: string; // ISO 3166-1 alpha-2
+  processAll?: boolean; // Default: true - process all available apps
+  country?: string; // ISO 3166-1 alpha-2, default: 'US'
 }
 
 export interface RedditConfig {
-  subreddit: string; // Use "MY_FEED" to get authenticated user's feed
-  sort?: 'hot' | 'new' | 'top' | 'rising';
-  timeframe?: 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
-  includeTerms?: string[];
-  excludeTerms?: string[];
+  useAuthenticatedFeed?: boolean; // Default: true - uses authenticated user's followed communities
+  sort?: 'hot' | 'new' | 'top' | 'rising'; // Default: 'new' for new posts
+  timeframe?: 'hour' | 'day' | 'week' | 'month' | 'year' | 'all'; // For 'top' and 'rising'
 }
 
 export interface DiscordConfig {
-  guildId: string;
-  channelId: string;
-  webhookUrl?: string;
+  useAuthenticatedChannels?: boolean; // Default: true - uses authenticated user's followed channels
+  webhookUrl?: string; // Optional: fallback webhook if auth not available
 }
 
 /**
@@ -76,6 +77,7 @@ export interface Item {
   tags: string[] | null;
   reason: string | null;
   score: number;
+  aiQuestions: string[] | null; // AI-generated follow-up questions
   vectorId: string | null;
   metadata: ItemMetadata | null;
   createdAt: string;
@@ -102,10 +104,14 @@ export interface ItemMetadata {
 
   // Discord-specific
   reactions?: Record<string, number>;
-  author?: string;
   channelName?: string;
 
+  // Igdux-specific
+  originalTitle?: string; // Original Chinese title before translation
+  tags?: string[];
+
   // Common
+  author?: string;
   imageUrl?: string;
   publishedAt?: string;
 }
@@ -145,16 +151,32 @@ export interface AuditLog {
 /**
  * User Preferences
  */
-export interface UserPreferences {
+export const UserPreferenceUpdateSchema = z
+  .object({
+    digestFrequency: z.enum(['daily', 'weekly', 'never']).optional(),
+    enabledSources: z.array(z.number().int().nonnegative()).optional(),
+    minScore: z.number().int().min(0).max(100).optional(),
+    excludeTags: z.array(z.string()).optional(),
+    includeTags: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export type UserPreferenceUpdate = z.infer<typeof UserPreferenceUpdateSchema>;
+
+export interface UserPreferences extends UserPreferenceUpdate {
   userId: string;
-  digestFrequency?: 'daily' | 'weekly' | 'never';
-  enabledSources?: number[]; // source IDs
-  minScore?: number;
-  excludeTags?: string[];
-  includeTags?: string[];
   createdAt: string;
   updatedAt: string;
 }
+
+export const UserActionPayloadSchema = z
+  .object({
+    itemId: z.string(),
+    action: z.enum(['read', 'star', 'followup', 'unstar']),
+  })
+  .strict();
+
+export type UserActionPayload = z.infer<typeof UserActionPayloadSchema>;
 
 /**
  * Digest History
@@ -188,7 +210,8 @@ export interface CurationResult {
   summary: string;
   tags: string[];
   reason: string;
-  score: number; // 0.0 - 1.0
+  score: number; // 0.0 - 1.0 (converted from 0-100 AI response)
+  questions?: string[]; // AI-generated follow-up questions
   embedding?: number[]; // vector for Vectorize
 }
 

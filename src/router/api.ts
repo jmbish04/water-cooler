@@ -22,7 +22,7 @@
  * - POST /api/scan - Trigger manual scan
  */
 
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { Env } from '../types/env';
 import {
@@ -34,12 +34,27 @@ import {
   MarkReadBodySchema,
   UpdateConfigBodySchema,
   TriggerScanBodySchema,
+  ReprocessBodySchema,
 } from '../types/api';
-import { getItems, getItemById, getSources, createSource } from '../services/db';
+import { getItems, getItemById, getSources, getSourceById, createSource } from '../services/db';
 import { searchSimilar, answerQuestion } from '../services/curator';
 import { jsonOk, jsonError, notFound } from '../utils/response';
 import { getUserId } from './middleware';
 import { getAIModel } from '../types/env';
+import {
+  checkSourceHealth,
+  storeHealthCheck,
+  getAllLatestHealthChecks,
+  getLatestHealthCheck,
+} from '../services/health';
+import {
+  getActiveTestProfiles,
+  getTestProfileById,
+  createTestProfile,
+  getEnrichedTestResults,
+  runAiTest,
+  getAiLogsForTestResult,
+} from '../services/testing';
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -77,16 +92,28 @@ api.get('/search', zValidator('query', SearchQuerySchema), async (c) => {
     const query = c.req.valid('query');
     const userId = getUserId(c);
 
-    // Use vector search for semantic query
-    const similar = await searchSimilar(c.env.VEC, query.q, c.env.AI, query.limit || 20);
+    // Use vector search for semantic query with higher limit to allow for filtering
+    const searchLimit = (query.limit || 20) * 3; // Get more results to filter
+    const similar = await searchSimilar(c.env.VEC, query.q, c.env.AI, searchLimit);
 
-    // Fetch full items from DB
+    // Fetch full items from DB and apply filters
     const items = [];
     for (const match of similar) {
       const item = await getItemById(c.env.DB, match.id);
-      if (item) {
-        items.push(item);
+      if (!item) continue;
+
+      // Apply filters
+      if (query.source && item.metadata?.source !== query.source) continue;
+      if (query.minScore !== undefined && item.score < query.minScore) continue;
+      if (query.tags && query.tags.length > 0) {
+        const hasTag = query.tags.some(tag => item.tags?.includes(tag));
+        if (!hasTag) continue;
       }
+
+      items.push(item);
+
+      // Stop if we have enough results
+      if (items.length >= (query.limit || 20)) break;
     }
 
     return jsonOk(c, {
@@ -110,7 +137,17 @@ api.post('/items/:id/ask', zValidator('json', AskQuestionBodySchema), async (c) 
     const body = c.req.valid('json');
     const userId = getUserId(c);
 
+    console.log('[API] /items/:id/ask - Request:', { itemId, question: body.question?.substring(0, 100) });
+
+    // Check if AI binding is available
+    if (!c.env.AI) {
+      console.error('[API] AI binding not available');
+      return jsonError(c, 'AI service not available', 503);
+    }
+
     const model = getAIModel(c.env);
+    console.log('[API] Using AI model:', model);
+
     const response = await answerQuestion(
       c.env.AI,
       c.env.VEC,
@@ -125,9 +162,14 @@ api.post('/items/:id/ask', zValidator('json', AskQuestionBodySchema), async (c) 
       (id) => getItemById(c.env.DB, id)
     );
 
+    console.log('[API] /items/:id/ask - Success, answer length:', response.answer?.length || 0);
     return jsonOk(c, response);
   } catch (error) {
-    return jsonError(c, error instanceof Error ? error : String(error), 500);
+    console.error('[API] /items/:id/ask - Error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('[API] Error stack:', errorStack);
+    return jsonError(c, errorMessage, 500);
   }
 });
 
@@ -255,7 +297,7 @@ api.post('/config', zValidator('json', UpdateConfigBodySchema), async (c) => {
  */
 api.post('/scan', zValidator('json', TriggerScanBodySchema), async (c) => {
   try {
-    const { sourceId } = c.req.valid('json');
+    const { sourceId, force, startDate, endDate } = c.req.valid('json');
 
     // Trigger scheduler
     const schedulerId = c.env.SCHEDULER_ACTOR.idFromName('scheduler');
@@ -263,11 +305,218 @@ api.post('/scan', zValidator('json', TriggerScanBodySchema), async (c) => {
 
     const response = await schedulerStub.fetch('http://scheduler/trigger', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceId, force, startDate, endDate }),
     });
 
     const result = await response.json();
 
     return jsonOk(c, result);
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * POST /api/reprocess
+ * Force reprocess existing entries for a source (or all sources)
+ */
+api.post('/reprocess', zValidator('json', ReprocessBodySchema), async (c) => {
+  try {
+    const { sourceId, startDate, endDate } = c.req.valid('json');
+
+    const schedulerId = c.env.SCHEDULER_ACTOR.idFromName('scheduler');
+    const schedulerStub = c.env.SCHEDULER_ACTOR.get(schedulerId);
+
+    const response = await schedulerStub.fetch('http://scheduler/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceId, force: true, startDate, endDate }),
+    });
+
+    const result = await response.json();
+
+    return jsonOk(c, result);
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/health
+ * Get all latest health checks
+ */
+api.get('/health', async (c) => {
+  try {
+    const healthChecks = await getAllLatestHealthChecks(c.env.DB);
+    return jsonOk(c, { healthChecks });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/health/check
+ * POST /api/health/check
+ * Run health checks on all sources (or specific source)
+ */
+async function handleHealthCheck(c: Context<{ Bindings: Env }>) {
+  try {
+    // Support both GET (query params) and POST (body)
+    const query = c.req.query();
+    const body = c.req.method === 'POST' ? await c.req.json().catch(() => ({})) : {};
+    const sourceId = query.sourceId || body.sourceId ? parseInt(query.sourceId || body.sourceId) : undefined;
+
+    const sources = sourceId
+      ? [await getSourceById(c.env.DB, sourceId)]
+      : await getSources(c.env.DB, true);
+
+    if (!sources || sources.length === 0) {
+      return jsonOk(c, { healthChecks: [], count: 0, message: 'No sources found' });
+    }
+
+    const results = [];
+    for (const source of sources.filter(Boolean)) {
+      if (!source) continue;
+
+      try {
+        const result = await checkSourceHealth(source, {
+          GITHUB_TOKEN: c.env.GITHUB_TOKEN,
+          REDDIT_CLIENT_ID: c.env.REDDIT_CLIENT_ID,
+          REDDIT_CLIENT_SECRET: c.env.REDDIT_CLIENT_SECRET,
+          REDDIT_REFRESH_TOKEN: c.env.REDDIT_REFRESH_TOKEN,
+          DISCORD_BOT_TOKEN: c.env.DISCORD_BOT_TOKEN,
+        });
+
+        await storeHealthCheck(c.env.DB, result);
+        results.push(result);
+      } catch (sourceError) {
+        console.error(`[HEALTH] Failed to check source ${source.id}:`, sourceError);
+        // Continue with other sources
+        results.push({
+          sourceId: source.id,
+          sourceName: source.name,
+          sourceType: source.type,
+          status: 'failed' as const,
+          responseTime: null,
+          errorMessage: sourceError instanceof Error ? sourceError.message : String(sourceError),
+          errorStack: sourceError instanceof Error ? sourceError.stack || null : null,
+          metadata: null,
+        });
+      }
+    }
+
+    return jsonOk(c, { healthChecks: results, count: results.length });
+  } catch (error) {
+    console.error('[HEALTH] Health check failed:', error);
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+}
+
+api.get('/health/check', handleHealthCheck);
+api.post('/health/check', handleHealthCheck);
+
+/**
+ * GET /api/tests
+ * Get all active test profiles
+ */
+api.get('/tests', async (c) => {
+  try {
+    const profiles = await getActiveTestProfiles(c.env.DB);
+    return jsonOk(c, { tests: profiles });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * POST /api/tests
+ * Create a new test profile
+ */
+api.post('/tests', async (c) => {
+  try {
+    const body = await c.req.json();
+    const profile = await createTestProfile(c.env.DB, {
+      name: body.name,
+      description: body.description || null,
+      features: body.features || null,
+      possibleErrorsWResolutions: body.possibleErrorsWResolutions || null,
+      isActive: body.isActive !== false,
+    });
+    return jsonOk(c, { test: profile });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/tests/:id/results
+ * Get test results for a specific test profile
+ */
+api.get('/tests/:id/results', async (c) => {
+  try {
+    const testId = parseInt(c.req.param('id'));
+    const results = await getEnrichedTestResults(c.env.DB, { testProfileId: testId, limit: 100 });
+
+    return jsonOk(c, { results });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * POST /api/tests/:id/run
+ * Run a specific test
+ */
+api.post('/tests/:id/run', async (c) => {
+  try {
+    const testId = parseInt(c.req.param('id'));
+    const body = await c.req.json();
+
+    const model = body.model || c.env.AI_MODEL || '@cf/openai/gpt-oss-120b';
+    const prompt = body.prompt || 'Test prompt';
+
+    const result = await runAiTest(c.env.DB, c.env.AI, testId, model, prompt);
+
+    return jsonOk(c, result);
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/test-results
+ * Get all test results with optional filtering
+ */
+api.get('/test-results', async (c) => {
+  try {
+    const query = c.req.query();
+    const sessionId = query.sessionId;
+    const onlyFailures = query.onlyFailures === 'true';
+    const limit = query.limit ? parseInt(query.limit) : 50;
+
+    const results = await getEnrichedTestResults(c.env.DB, {
+      sessionId,
+      onlyFailures,
+      limit,
+    });
+
+    return jsonOk(c, { results, total: results.length });
+  } catch (error) {
+    return jsonError(c, error instanceof Error ? error : String(error), 500);
+  }
+});
+
+/**
+ * GET /api/test-results/:id/ai-logs
+ * Get AI execution logs for a specific test result
+ */
+api.get('/test-results/:id/ai-logs', async (c) => {
+  try {
+    const resultId = parseInt(c.req.param('id'));
+    const logs = await getAiLogsForTestResult(c.env.DB, resultId);
+
+    return jsonOk(c, { logs });
   } catch (error) {
     return jsonError(c, error instanceof Error ? error : String(error), 500);
   }

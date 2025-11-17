@@ -23,6 +23,7 @@ import { curateContent, insertEmbedding } from '../services/curator';
 import { createItem } from '../services/db';
 import { createLogger } from '../utils/logger';
 import { getAIModel } from '../types/env';
+import { normalizeBadges, linkBadgesToItem } from '../services/badges';
 
 export class CuratorActor implements DurableObject {
   private state: DurableObjectState;
@@ -52,8 +53,10 @@ export class CuratorActor implements DurableObject {
    * Step 1 - Parse request body
    * Step 2 - Call AI curation service
    * Step 3 - Insert embedding into Vectorize
-   * Step 4 - Create item in D1
-   * Step 5 - Return result
+   * Step 4 - Normalize tags to badges
+   * Step 5 - Create item in D1
+   * Step 6 - Link badges to item
+   * Step 7 - Return result
    */
   private async curate(request: Request): Promise<Response> {
     const logger = createLogger(this.env.DB, 'CuratorActor');
@@ -87,27 +90,42 @@ export class CuratorActor implements DurableObject {
         );
       }
 
-      // Step 4 - Create item in D1
+      // Step 4 - Normalize tags to badges
+      const badgeIds = await normalizeBadges(this.env.DB, result.tags);
+
+      // Step 5 - Create item in D1
+      // Merge source into metadata
+      const metadata = {
+        ...(curationRequest.metadata || {}),
+        source: curationRequest.source,
+      };
+
       const item = await createItem(this.env.DB, {
         sourceId: curationRequest.sourceId,
         title: curationRequest.title,
         url: curationRequest.url,
         summary: result.summary,
-        tags: result.tags,
+        tags: result.tags, // Keep legacy tags for backwards compatibility
         reason: result.reason,
         score: result.score,
+        aiQuestions: result.questions || [],
         vectorId,
-        metadata: curationRequest.metadata || null,
+        metadata,
       });
+
+      // Step 6 - Link badges to item
+      await linkBadgesToItem(this.env.DB, item.id, badgeIds);
 
       await logger.info('CURATION_COMPLETED', {
         itemId: item.id,
         source: curationRequest.source,
         score: result.score,
+        badgeCount: badgeIds.length,
+        questionCount: result.questions?.length || 0,
         durationMs: Date.now() - start,
       });
 
-      // Step 5 - Return result
+      // Step 7 - Return result
       return new Response(JSON.stringify({ success: true, item }), {
         headers: { 'Content-Type': 'application/json' },
       });

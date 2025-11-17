@@ -2,14 +2,14 @@
  * GitHub Data Fetching Service
  *
  * Purpose:
- * - Fetch trending repositories
- * - Fetch specific org/repo data
+ * - Fetch trending and top repositories across all categories
+ * - Search for new repos across all programming languages
  * - Normalize GitHub data to common Item format
  * - Cache responses in KV
  *
  * AI Agent Hints:
  * - Uses GitHub REST API (no auth for public data)
- * - Trending via unofficial API (github-trending-api or scraping)
+ * - Searches trending/top repos across all languages
  * - Cache for 1 hour to reduce API calls
  * - README fetched for curation content
  */
@@ -33,8 +33,8 @@ interface GitHubRepo {
 /**
  * Fetch repositories based on config
  *
- * Step 1 - Determine fetch strategy (trending vs org repos)
- * Step 2 - Fetch from GitHub API
+ * Step 1 - Determine fetch strategies (trending, top, or both)
+ * Step 2 - Fetch from GitHub API across all categories
  * Step 3 - Normalize to common format
  * Step 4 - Cache results
  */
@@ -43,7 +43,10 @@ export async function fetchGitHubRepos(
   cache: KVNamespace,
   token?: string
 ): Promise<Array<{ title: string; url: string; content: string; metadata: ItemMetadata }>> {
-  const cacheKey = `github:${JSON.stringify(config)}`;
+  const strategies = config.strategies || ['trending', 'top'];
+  const languages = config.languages || []; // Empty = all languages
+  const since = config.since || 'daily';
+  const cacheKey = `github:${JSON.stringify({ strategies, languages, since })}`;
 
   // Check cache
   const cached = await cache.get(cacheKey, 'json');
@@ -51,21 +54,41 @@ export async function fetchGitHubRepos(
     return cached as any;
   }
 
-  let repos: GitHubRepo[] = [];
+  const allRepos: GitHubRepo[] = [];
+  const seenRepos = new Set<string>(); // Deduplicate by full_name
 
-  // Strategy 1: Trending
-  if (config.trending) {
-    repos = await fetchTrending(config.trending.language, config.trending.since, token);
+  // Fetch from each strategy
+  for (const strategy of strategies) {
+    if (languages.length === 0) {
+      // Fetch all languages (no filter)
+      const repos = await fetchByStrategy(strategy, undefined, since, token);
+      for (const repo of repos) {
+        if (!seenRepos.has(repo.full_name)) {
+          allRepos.push(repo);
+          seenRepos.add(repo.full_name);
+        }
+      }
+    } else {
+      // Fetch for each specified language
+      for (const language of languages) {
+        const repos = await fetchByStrategy(strategy, language, since, token);
+        for (const repo of repos) {
+          if (!seenRepos.has(repo.full_name)) {
+            allRepos.push(repo);
+            seenRepos.add(repo.full_name);
+          }
+        }
+      }
+    }
   }
-  // Strategy 2: Org repos
-  else if (config.org) {
-    repos = await fetchOrgRepos(config.org, config.repos, token);
-  }
+
+  // Sort by stars (descending) and limit
+  allRepos.sort((a, b) => b.stargazers_count - a.stargazers_count);
+  const topRepos = allRepos.slice(0, 100); // Get top 100 across all strategies
 
   // Normalize
   const results = [];
-  for (const repo of repos.slice(0, 20)) {
-    // limit to 20
+  for (const repo of topRepos) {
     const readme = await fetchReadme(repo.full_name, token);
     results.push({
       title: repo.full_name,
@@ -88,19 +111,34 @@ export async function fetchGitHubRepos(
 }
 
 /**
- * Fetch trending repositories
+ * Fetch repositories by strategy (trending or top)
  */
-async function fetchTrending(
+async function fetchByStrategy(
+  strategy: 'trending' | 'top',
   language?: string,
   since: string = 'daily',
   token?: string
 ): Promise<GitHubRepo[]> {
-  // Use GitHub search API as a proxy for trending
   const langQuery = language ? `language:${language}` : '';
   const dateFilter = getDateFilter(since);
-  const query = `stars:>100 ${langQuery} ${dateFilter}`.trim();
+  
+  let query = '';
+  let sort = 'stars';
+  let order = 'desc';
 
-  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=30`;
+  if (strategy === 'trending') {
+    // Trending: recently created repos with high star count
+    query = `stars:>100 ${langQuery} ${dateFilter}`.trim();
+    sort = 'stars';
+    order = 'desc';
+  } else if (strategy === 'top') {
+    // Top: highest starred repos overall
+    query = `stars:>1000 ${langQuery}`.trim();
+    sort = 'stars';
+    order = 'desc';
+  }
+
+  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=${sort}&order=${order}&per_page=100`;
 
   const response = await fetch(url, {
     headers: buildHeaders(token),
@@ -112,44 +150,6 @@ async function fetchTrending(
 
   const data = await response.json<{ items: GitHubRepo[] }>();
   return data.items || [];
-}
-
-/**
- * Fetch organization repositories
- */
-async function fetchOrgRepos(
-  org: string,
-  repos?: string[],
-  token?: string
-): Promise<GitHubRepo[]> {
-  if (repos && repos.length > 0) {
-    // Fetch specific repos
-    const results = [];
-    for (const repo of repos) {
-      const url = `https://api.github.com/repos/${org}/${repo}`;
-      const response = await fetch(url, {
-        headers: buildHeaders(token),
-      });
-
-      if (response.ok) {
-        const data = await response.json<GitHubRepo>();
-        results.push(data);
-      }
-    }
-    return results;
-  } else {
-    // Fetch all org repos
-    const url = `https://api.github.com/orgs/${org}/repos?sort=updated&per_page=30`;
-    const response = await fetch(url, {
-      headers: buildHeaders(token),
-    });
-
-    if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status}`);
-    }
-
-    return await response.json<GitHubRepo[]>();
-  }
 }
 
 /**
