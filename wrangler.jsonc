@@ -8,7 +8,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
-    "head_sampling_rate": 1
+    "head_sampling_rate": 1,
+    "traces": { "enabled": false },
+    "logs": { "enabled": true, "invocation_logs": false }
   },
   "vars": {
     "AI_MODEL": "@cf/openai/gpt-4o-mini",
